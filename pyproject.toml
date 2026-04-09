@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "feedback-analysis"
+version = "1.0.0"
+description = "Customer Feedback Analysis System - ML pipeline for sentiment classification"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+dependencies = [
+    "kaggle",
+    "pandas",
+    "scikit-learn",
+    "nltk",
+    "imblearn",
+    "sentence-transformers",
+    "textblob",
+    "xgboost",
+    "fastapi",
+    "uvicorn",
+    "matplotlib",
+    "seaborn",
+    "python-dotenv",
+    "tqdm",
+    "joblib",
+    "requests",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+]
+
+[project.scripts]
+run-pipeline = "main_pipeline:main"
+
+[tool.setuptools.packages.find]
+include = ["src*"]

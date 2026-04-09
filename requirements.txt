@@ -6,10 +6,8 @@ imblearn
 sentence-transformers
 textblob
 xgboost
-nltk
-textblob
-flask
-gunicorn
+fastapi
+uvicorn
 matplotlib
 seaborn
 pytest
@@ -18,4 +16,3 @@ python-dotenv
 tqdm
 joblib
 requests
-sys

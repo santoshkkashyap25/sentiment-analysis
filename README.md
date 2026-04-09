@@ -2,38 +2,6 @@
 
 A machine learning pipeline for analyzing customer feedback and extracting actionable insights through sentiment classification.
 
-## Quick Start
-
-### Prerequisites
-- Python 3.8+
-- Kaggle API credentials (for data download)
-
-### Installation
-
-1. **Clone the repository:**
-```bash
-git clone https://github.com/santoshkkashyap25/feedback-analysis.git
-cd feedback-analysis
-```
-
-2. **Install dependencies:**
-```bash
-pip install -r requirements.txt
-```
-
-3. **Setup Kaggle API:**
-```bash
-# Place your kaggle.json credentials in ~/.kaggle/
-mkdir -p ~/.kaggle
-cp kaggle.json ~/.kaggle/
-chmod 600 ~/.kaggle/kaggle.json
-```
-
-4. **Run the pipeline:**
-```bash
-python main_pipeline.py
-```
-
 
 <!-- ## Model Performance
 
@@ -53,6 +21,16 @@ Our best performing model achieves:
 
 ## API Usage
 
+### Start the Server
+```bash
+uvicorn src.api.app:app --host 0.0.0.0 --port 5000
+```
+
+### API Documentation
+Once the server is running, visit:
+- **Swagger UI**: http://localhost:5000/docs
+- **ReDoc**: http://localhost:5000/redoc
+
 ### Single Prediction
 ```bash
 curl -X POST http://localhost:5000/predict \
@@ -70,7 +48,8 @@ curl -X POST http://localhost:5000/predict \
     "Neutral": 0.04,
     "Positive": 0.94
   },
-  "timestamp": "2025-01-15T10:30:00Z"
+  "timestamp": "2025-01-15T10:30:00Z",
+  "model_version": "1.0"
 }
 ```
 
@@ -121,26 +100,6 @@ curl -X POST http://localhost:5000/predict/batch \
 4. **A/B Testing**: Gradual rollout with performance comparison
 5. **Deployment**: Replace model if performance improves
 
-## Testing
-
-### Run Tests
-```bash
-# Unit tests
-pytest tests/
-
-# Integration tests
-pytest tests/test_api.py
-
-# Performance benchmarks
-python benchmarks/performance_test.py
-```
-
-<!-- ### Performance Benchmarks
-Current API performance:
-- **Average Response Time**: 245ms
-- **P95 Response Time**: 480ms
-- **Throughput**: 120 requests/second
-- **Success Rate**: 99.8% -->
 
 ## Configuration
 
