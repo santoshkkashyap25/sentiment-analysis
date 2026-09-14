@@ -1,284 +1,407 @@
+"""FastAPI application for sentiment analysis predictions with embedded MLOps dashboard."""
 
-### api/app.py
-
-from flask import Flask, request, jsonify
+from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse
+from pydantic import BaseModel, Field
+from typing import List, Dict, Any, Optional
 import numpy as np
 import pandas as pd
 import pickle
 import logging
-from typing import Dict, Any
 import os
+import sqlite3
 from datetime import datetime
 import time
-from functools import wraps
-import redis
-from concurrent.futures import ThreadPoolExecutor
 import threading
-
+from pathlib import Path
 
 import warnings
 warnings.filterwarnings("ignore")
 
-import sys
-import os
+from src.features.feature_engineering import FeatureEngineer
+from src.data.preprocessing import DataPreprocessor
+from src.monitoring.drift_detection import ModelMonitor
 
-# Add project root to sys.path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
-app = Flask(__name__)
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
 
-# Configure logging
+app = FastAPI(title="Customer Feedback Analysis & MLOps API", version="1.0.0")
+
+# Mount static files
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global variables for model and feature extractors
-model = None
-feature_engineer = None
-redis_client = None
+# Request schemas
+class PredictRequest(BaseModel):
+    text: str = Field(..., min_length=1, description="Customer feedback text to analyze")
+
+class PredictResponse(BaseModel):
+    sentiment: str
+    confidence: float
+    probabilities: Dict[str, float]
+    timestamp: str
+    model_version: str = "1.0"
+    processed_text: Optional[str] = None
+    response_time_ms: float = 0.0
+    error: Optional[str] = None
+
+class HealthResponse(BaseModel):
+    status: str
+    timestamp: str
+    model_loaded: bool
+    model_version: str = "1.0"
+
+class StatsResponse(BaseModel):
+    total_requests: int
+    uptime: str
+    model_info: Dict[str, Any]
+
 request_count = 0
 request_lock = threading.Lock()
+monitor = ModelMonitor(db_path=str(BASE_DIR / 'monitoring.db'))
+
 
 class FeedbackAnalysisAPI:
-    """Main API class for feedback analysis"""
-    
+    """Main API class for feedback analysis inference"""
+
     def __init__(self):
         self.model = None
         self.feature_engineer = None
+        self.preprocessor = DataPreprocessor({})
         self.load_model_and_extractors()
-        
+
     def load_model_and_extractors(self):
         """Load pre-trained model and feature extractors"""
         try:
-            # Load model
-            model_path = os.getenv('MODEL_PATH', 'data/models/best_model.pkl')
-            with open(model_path, 'rb') as f:
-                self.model = pickle.load(f)
-            logger.info("Model loaded successfully")
-            
-            # Load feature extractors
-            extractors_path = os.getenv('EXTRACTORS_PATH', 'data/models/feature_extractors.pkl')
-            with open(extractors_path, 'rb') as f:
-                extractors = pickle.load(f)
-            
-            # Initialize feature engineer with loaded extractors
-            from src.features.feature_engineering import FeatureEngineer
-            self.feature_engineer = FeatureEngineer({})
-            self.feature_engineer.tfidf_vectorizer = extractors['tfidf_vectorizer']
-            self.feature_engineer.sentence_transformer = extractors['sentence_transformer']
-            self.feature_engineer.svd = extractors['svd']
-            
-            logger.info("Feature extractors loaded successfully")
-            
+            model_path = os.getenv('MODEL_PATH', str(BASE_DIR / 'data' / 'models' / 'best_model.pkl'))
+            if os.path.exists(model_path):
+                with open(model_path, 'rb') as f:
+                    self.model = pickle.load(f)
+                logger.info(f"Model loaded successfully from {model_path}")
+            else:
+                logger.warning(f"Model file not found at {model_path}")
+
+            extractors_path = os.getenv('EXTRACTORS_PATH', str(BASE_DIR / 'data' / 'models' / 'feature_extractors.pkl'))
+            if os.path.exists(extractors_path):
+                with open(extractors_path, 'rb') as f:
+                    extractors = pickle.load(f)
+
+                self.feature_engineer = FeatureEngineer({})
+                self.feature_engineer.tfidf_vectorizer = extractors.get('tfidf_vectorizer')
+                self.feature_engineer.sentence_transformer = extractors.get('sentence_transformer')
+                self.feature_engineer.svd = extractors.get('svd')
+                logger.info("Feature extractors loaded successfully")
+            else:
+                logger.warning(f"Extractors file not found at {extractors_path}")
+
         except Exception as e:
             logger.error(f"Error loading model/extractors: {e}")
-            raise
-            
+
     def preprocess_text(self, text: str) -> str:
         """Preprocess input text"""
-        from src.data.preprocessing import DataPreprocessor
-        preprocessor = DataPreprocessor({})
-        return preprocessor.clean_text(text)
-        
+        return self.preprocessor.clean_text(text)
+
     def extract_features(self, text: str) -> np.ndarray:
-        """Extract features from preprocessed text"""
-        # Create temporary dataframe
+        """Extract features from preprocessed text without target leakage"""
         df = pd.DataFrame({'reviewText_clean': [text]})
-        
-        # Extract basic features
+
         feature_df = self.feature_engineer.extract_basic_features(df, 'reviewText_clean')
-        
-        # Extract TF-IDF features
-        tfidf_features = self.feature_engineer.extract_tfidf_features([text])
-        
-        # Extract embeddings
-        embeddings = self.feature_engineer.extract_sentence_embeddings([text])
-        embeddings = self.feature_engineer.reduce_dimensionality(embeddings, n_components=50)
-        
-        # Combine features
+        tfidf_features = self.feature_engineer.extract_tfidf_features([text], is_training=False)
+
+        embeddings = None
+        if self.feature_engineer.svd is not None and self.feature_engineer.sentence_transformer is not None:
+            try:
+                raw_emb = self.feature_engineer.extract_sentence_embeddings([text])
+                embeddings = self.feature_engineer.reduce_dimensionality(raw_emb, n_components=50, is_training=False)
+            except Exception as e:
+                logger.warning(f"Embeddings generation skipped: {e}")
+
         features = self.feature_engineer.combine_features(feature_df, tfidf_features, embeddings)
-        
         return features
-        
+
     def predict_sentiment(self, text: str) -> Dict[str, Any]:
-        """Predict sentiment for given text"""
+        """Predict sentiment for given feedback text"""
         try:
-            # Preprocess text
+            if self.model is None or self.feature_engineer is None:
+                self.load_model_and_extractors()
+                if self.model is None:
+                    raise RuntimeError("Model is not loaded. Run pipeline.py first.")
+
             clean_text = self.preprocess_text(text)
-            
+
             if not clean_text.strip():
                 return {
                     'sentiment': 'Neutral',
                     'confidence': 0.33,
                     'probabilities': {'Negative': 0.33, 'Neutral': 0.34, 'Positive': 0.33},
-                    'error': 'Empty text after preprocessing'
+                    'processed_text': '',
+                    'error': 'Empty text after cleaning'
                 }
-            
-            # Extract features
+
             features = self.extract_features(clean_text)
-            
-            # Make prediction
-            prediction = self.model.predict(features)[0]
-            probabilities = self.model.predict_proba(features)[0]
-            
-            # Map prediction to sentiment
+            prediction = int(self.model.predict(features)[0])
+
+            probabilities = None
+            if hasattr(self.model, "predict_proba"):
+                probs = self.model.predict_proba(features)[0]
+                prob_dict = {
+                    'Negative': round(float(probs[0]), 4),
+                    'Neutral': round(float(probs[1]), 4),
+                    'Positive': round(float(probs[2]), 4)
+                }
+                confidence = round(float(np.max(probs)), 4)
+            else:
+                prob_dict = {'Negative': 0.0, 'Neutral': 0.0, 'Positive': 0.0}
+                prob_dict[['Negative', 'Neutral', 'Positive'][prediction]] = 1.0
+                confidence = 1.0
+
             sentiment_map = {0: 'Negative', 1: 'Neutral', 2: 'Positive'}
-            sentiment = sentiment_map[prediction]
-            
-            # Get confidence (max probability)
-            confidence = float(np.max(probabilities))
-            
-            # Format probabilities
-            prob_dict = {
-                'Negative': float(probabilities[0]),
-                'Neutral': float(probabilities[1]),
-                'Positive': float(probabilities[2])
-            }
-            
+            sentiment = sentiment_map.get(prediction, 'Neutral')
+
             return {
+                'prediction_id': prediction,
                 'sentiment': sentiment,
                 'confidence': confidence,
                 'probabilities': prob_dict,
-                'processed_text': clean_text
+                'processed_text': clean_text,
+                'error': None
             }
-            
+
         except Exception as e:
             logger.error(f"Prediction error: {e}")
             return {
-                'error': str(e),
+                'prediction_id': 1,
                 'sentiment': 'Unknown',
-                'confidence': 0.0
+                'confidence': 0.0,
+                'probabilities': {'Negative': 0.0, 'Neutral': 0.0, 'Positive': 0.0},
+                'processed_text': text,
+                'error': str(e)
             }
 
-# Initialize API
+
 api = FeedbackAnalysisAPI()
+start_time_server = datetime.now()
 
-# Rate limiting decorator
-def rate_limit(max_requests=100, window=3600):
-    """Rate limiting decorator"""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            global request_count
-            
-            with request_lock:
-                request_count += 1
-                
-            if request_count > max_requests:
-                return jsonify({'error': 'Rate limit exceeded'}), 429
-                
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
 
-# Monitoring decorator
-def monitor_requests(f):
-    """Request monitoring decorator"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        start_time = time.time()
-        
-        try:
-            result = f(*args, **kwargs)
-            status = 'success'
-            response_time = time.time() - start_time
-            
-            # Log metrics
-            logger.info(f"Request completed - Status: {status}, Response time: {response_time:.3f}s")
-            
-            return result
-            
-        except Exception as e:
-            response_time = time.time() - start_time
-            logger.error(f"Request failed - Error: {e}, Response time: {response_time:.3f}s")
-            raise
-            
-    return decorated_function
+@app.get("/", response_class=FileResponse)
+async def serve_dashboard():
+    """Serve embedded modern web dashboard"""
+    index_file = TEMPLATE_DIR / "index.html"
+    if not index_file.exists():
+        return HTMLResponse("<h1>Dashboard loading...</h1>")
+    return FileResponse(str(index_file))
 
-@app.route('/health', methods=['GET'])
-def health_check():
+
+@app.get("/health", response_model=HealthResponse)
+async def health_check():
     """Health check endpoint"""
-    return jsonify({
+    return {
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
-        'model_loaded': api.model is not None
-    })
+        'model_loaded': api.model is not None,
+        'model_version': '1.0'
+    }
 
-@app.route('/predict', methods=['POST'])
-@rate_limit(max_requests=1000, window=3600)
-@monitor_requests
-def predict():
-    """Single prediction endpoint"""
+
+@app.post("/predict", response_model=PredictResponse)
+async def predict(payload: PredictRequest):
+    """Real-time single feedback sentiment prediction"""
+    global request_count
+
+    with request_lock:
+        request_count += 1
+
+    if not payload.text.strip():
+        raise HTTPException(status_code=400, detail="Text must be a non-empty string")
+
+    t0 = time.time()
+    result = api.predict_sentiment(payload.text)
+    latency_sec = time.time() - t0
+    latency_ms = round(latency_sec * 1000, 2)
+
+    # Log to SQLite monitoring database
     try:
-        data = request.get_json()
-        
-        if not data or 'text' not in data:
-            return jsonify({'error': 'Missing required field: text'}), 400
-        
-        text = data['text']
-        if not isinstance(text, str) or not text.strip():
-            return jsonify({'error': 'Text must be a non-empty string'}), 400
-        
-        # Make prediction
-        result = api.predict_sentiment(text)
-        
-        # Add metadata
-        result['timestamp'] = datetime.now().isoformat()
-        result['model_version'] = '1.0'
-        
-        return jsonify(result)
-        
+        prediction_int = result.get('prediction_id', 1)
+        monitor.log_prediction(
+            input_text=payload.text[:500],
+            prediction=prediction_int,
+            confidence=result.get('confidence', 0.0),
+            response_time=latency_sec
+        )
     except Exception as e:
-        logger.error(f"Prediction endpoint error: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        logger.warning(f"Could not log prediction to monitoring DB: {e}")
 
-@app.route('/predict/batch', methods=['POST'])
-@rate_limit(max_requests=100, window=3600)
-@monitor_requests
-def predict_batch():
-    """Batch prediction endpoint"""
-    try:
-        data = request.get_json()
-        
-        if not data or 'texts' not in data:
-            return jsonify({'error': 'Missing required field: texts'}), 400
-        
-        texts = data['texts']
-        if not isinstance(texts, list) or len(texts) == 0:
-            return jsonify({'error': 'texts must be a non-empty list'}), 400
-        
-        if len(texts) > 100:  # Limit batch size
-            return jsonify({'error': 'Batch size cannot exceed 100'}), 400
-        
-        # Process predictions in parallel
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            results = list(executor.map(api.predict_sentiment, texts))
-        
-        # Add metadata
-        response = {
-            'predictions': results,
-            'count': len(results),
-            'timestamp': datetime.now().isoformat(),
-            'model_version': '1.0'
-        }
-        
-        return jsonify(response)
-        
-    except Exception as e:
-        logger.error(f"Batch prediction endpoint error: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+    result['timestamp'] = datetime.now().isoformat()
+    result['model_version'] = '1.0'
+    result['response_time_ms'] = latency_ms
 
-@app.route('/stats', methods=['GET'])
-def get_stats():
+    return result
+
+
+@app.get("/stats", response_model=StatsResponse)
+async def get_stats():
     """Get API statistics"""
-    return jsonify({
+    return {
         'total_requests': request_count,
-        'uptime': datetime.now().isoformat(),
+        'uptime': str(datetime.now() - start_time_server),
         'model_info': {
             'version': '1.0',
-            'type': 'sentiment_classifier',
+            'type': type(api.model).__name__ if api.model else 'None',
             'classes': ['Negative', 'Neutral', 'Positive']
         }
-    })
+    }
+
+
+@app.get("/api/telemetry")
+async def get_telemetry():
+    """Query monitoring.db to return live MLOps telemetry and drift metrics"""
+    db_path = BASE_DIR / "monitoring.db"
+    if not db_path.exists():
+        return {
+            "total_predictions": 0,
+            "avg_latency_ms": 0.0,
+            "p50_latency_ms": 0.0,
+            "p95_latency_ms": 0.0,
+            "sentiment_counts": {"Positive": 0, "Neutral": 0, "Negative": 0},
+            "recent_predictions": [],
+            "drift_alerts": []
+        }
+
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Query recent predictions
+        cursor.execute('''
+            SELECT id, timestamp, input_text, prediction, confidence, response_time
+            FROM predictions
+            ORDER BY id DESC LIMIT 20
+        ''')
+        rows = cursor.fetchall()
+
+        sentiment_labels = {0: "Negative", 1: "Neutral", 2: "Positive"}
+        recent = []
+        latencies = []
+        counts = {"Negative": 0, "Neutral": 0, "Positive": 0}
+
+        for r in rows:
+            lbl = sentiment_labels.get(r["prediction"], "Neutral")
+            counts[lbl] = counts.get(lbl, 0) + 1
+            lat = round(float(r["response_time"] or 0) * 1000, 2)
+            latencies.append(lat)
+            recent.append({
+                "id": r["id"],
+                "timestamp": str(r["timestamp"]),
+                "text": r["input_text"],
+                "sentiment": lbl,
+                "confidence": round(float(r["confidence"] or 0), 4),
+                "latency_ms": lat
+            })
+
+        # Overall count and latencies
+        cursor.execute("SELECT COUNT(*), AVG(response_time) FROM predictions")
+        tot_count, avg_resp = cursor.fetchone()
+        avg_latency_ms = round((avg_resp or 0) * 1000, 2)
+
+        # Percentiles
+        cursor.execute("SELECT response_time FROM predictions WHERE response_time IS NOT NULL ORDER BY response_time")
+        all_lats = [float(row[0]) * 1000 for row in cursor.fetchall()]
+        p50 = round(float(np.percentile(all_lats, 50)), 2) if all_lats else 0.0
+        p95 = round(float(np.percentile(all_lats, 95)), 2) if all_lats else 0.0
+
+        # Query drift alerts
+        cursor.execute('''
+            SELECT id, timestamp, drift_type, metric_value, threshold, severity
+            FROM drift_alerts
+            ORDER BY id DESC LIMIT 10
+        ''')
+        alerts = [
+            {
+                "id": a["id"],
+                "timestamp": str(a["timestamp"]),
+                "type": a["drift_type"],
+                "value": round(float(a["metric_value"]), 4),
+                "threshold": round(float(a["threshold"]), 4),
+                "severity": a["severity"]
+            }
+            for a in cursor.fetchall()
+        ]
+
+        conn.close()
+
+        return {
+            "total_predictions": tot_count or len(recent),
+            "avg_latency_ms": avg_latency_ms,
+            "p50_latency_ms": p50,
+            "p95_latency_ms": p95,
+            "sentiment_counts": counts,
+            "recent_predictions": recent,
+            "drift_alerts": alerts
+        }
+    except Exception as e:
+        logger.error(f"Error fetching telemetry: {e}")
+        return {"error": str(e)}
+
+
+@app.post("/api/simulate-drift")
+async def simulate_drift():
+    """Simulate out-of-distribution drift traffic to test the MLOps detector"""
+    try:
+        # Generate synthetic out-of-distribution reviews (anomalous machine crash telemetry / foreign text)
+        ood_samples = [
+            "FATAL ERR: 0x8849F buffer overflow at segment 12 offset 992",
+            "WARNING device voltage spike 4.88V on bus controller #04",
+            "NullPointerException at com.system.kernel.Driver.init() line 44",
+            "Hardware interrupt 0xEE received without valid handler",
+            "SYNTAX ERROR invalid token near line 1 position 482",
+            "Thermal threshold exceeded: CPU temp 98C cooling fan inactive",
+            "Segmentation fault core dumped /usr/bin/daemon_worker",
+            "Invalid checksum in header block 0xFA39B92 expected 0x0000",
+            "Connection timeout on socket 192.168.1.1:9092 after 30000ms",
+            "Stack overflow in recursive subroutine handler index 9"
+        ] * 4
+
+        # Extract features for OOD samples
+        if api.feature_engineer is None:
+            api.load_model_and_extractors()
+
+        ood_clean = [api.preprocess_text(s) for s in ood_samples]
+        ood_features = api.feature_engineer.extract_tfidf_features(ood_clean, is_training=False)
+
+        # Load reference baseline features
+        ref_path = BASE_DIR / "data" / "processed" / "features_reference.pkl"
+        if ref_path.exists():
+            with open(str(ref_path), "rb") as f:
+                ref_features = pickle.load(f)
+        else:
+            # Fallback baseline
+            ref_clean = ["great product high quality fast shipping wonderful experience love it"] * 40
+            ref_features = api.feature_engineer.extract_tfidf_features(ref_clean, is_training=False)
+
+        # Run statistical drift detection
+        drift_result = monitor.detect_data_drift(ref_features, ood_features, threshold=0.05)
+
+        return {
+            "status": "simulation_complete",
+            "drift_detected": drift_result["overall_drift"],
+            "drift_percentage": round(drift_result["drift_percentage"] * 100, 2),
+            "drifted_features_count": drift_result["drift_detected_features"],
+            "total_features_tested": drift_result["total_features"],
+            "message": "Data drift detected! Statistical alert logged." if drift_result["overall_drift"] else "No drift detected."
+        }
+    except Exception as e:
+        logger.error(f"Error simulating drift: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, threaded=True)
+    import uvicorn
+    uvicorn.run(app, host='0.0.0.0', port=5000)

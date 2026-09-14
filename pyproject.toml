@@ -39,3 +39,8 @@ run-pipeline = "main_pipeline:main"
 
 [tool.setuptools.packages.find]
 include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [".venv", "data", "logs", "dist", "build"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::UserWarning"]

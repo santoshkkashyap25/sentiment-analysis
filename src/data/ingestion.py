@@ -1,25 +1,30 @@
+"""Data ingestion from multiple sources."""
+
 import pandas as pd
-import numpy as np
 import requests
-from typing import Dict, List, Optional, Union
 import logging
 from pathlib import Path
-import kaggle
-import zipfile
-import os
+from typing import Dict, List, Optional
+
 import warnings
 warnings.filterwarnings("ignore")
 
+
 class DataIngestionPipeline:
     """Handles data ingestion from multiple sources"""
-    
+
     def __init__(self, config: Dict):
         self.config = config
         self.logger = logging.getLogger(__name__)
-        
+
+    def _get_kaggle(self):
+        import kaggle
+        return kaggle
+
     def download_kaggle_dataset(self, dataset_name: str, download_path: str) -> str:
         """Download dataset from Kaggle"""
         try:
+            kaggle = self._get_kaggle()
             kaggle.api.dataset_download_files(
                 dataset_name,
                 path=download_path,
@@ -30,7 +35,7 @@ class DataIngestionPipeline:
         except Exception as e:
             self.logger.error(f"Error downloading dataset: {e}")
             raise
-            
+
     def load_csv_data(self, file_path: str) -> pd.DataFrame:
         """Load data from CSV file"""
         try:
@@ -40,7 +45,7 @@ class DataIngestionPipeline:
         except Exception as e:
             self.logger.error(f"Error loading CSV: {e}")
             raise
-            
+
     def fetch_api_data(self, api_url: str, headers: Dict = None) -> pd.DataFrame:
         """Fetch data from API endpoint"""
         try:
@@ -53,11 +58,11 @@ class DataIngestionPipeline:
         except Exception as e:
             self.logger.error(f"Error fetching API data: {e}")
             raise
-            
+
     def ingest_multiple_sources(self, sources: List[Dict]) -> pd.DataFrame:
         """Ingest data from multiple sources and combine"""
         dataframes = []
-        
+
         for source in sources:
             if source['type'] == 'csv':
                 df = self.load_csv_data(source['path'])
@@ -66,11 +71,10 @@ class DataIngestionPipeline:
             elif source['type'] == 'kaggle':
                 path = self.download_kaggle_dataset(source['dataset'], source['download_path'])
                 df = self.load_csv_data(f"{path}/{source['filename']}")
-            
-            # Add source identifier
+
             df['data_source'] = source['name']
             dataframes.append(df)
-        
+
         combined_df = pd.concat(dataframes, ignore_index=True)
         self.logger.info(f"Combined {len(combined_df)} records from {len(sources)} sources")
         return combined_df

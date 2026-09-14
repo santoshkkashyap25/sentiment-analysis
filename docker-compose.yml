@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  feedback-mlops:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: feedback_analysis_service
+    ports:
+      - "5000:5000"
+    environment:
+      - MODEL_PATH=/app/data/models/best_model.pkl
+      - EXTRACTORS_PATH=/app/data/models/feature_extractors.pkl
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./data/models:/app/data/models
+      - ./logs:/app/logs
+      - ./monitoring.db:/app/monitoring.db
+    restart: unless-stopped
