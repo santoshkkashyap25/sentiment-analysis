@@ -37,9 +37,6 @@ class PathConfig:
     def feature_extractors(self) -> Path:
         return self.models / "feature_extractors.pkl"
 
-    @property
-    def features_tfidf(self) -> Path:
-        return self.processed_data / "features_tfidf.pkl"
 
     @property
     def monitoring_db(self) -> Path:
@@ -69,8 +66,6 @@ class APIConfig:
     """API server configuration."""
     host: str = "0.0.0.0"
     port: int = 5000
-    batch_max_size: int = 100
-    batch_workers: int = 4
     model_version: str = "1.0"
 
 

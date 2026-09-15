@@ -57,6 +57,10 @@ benchmark_report.txt
 kaggle.json
 *.csv
 *.pkl
+*.safetensors
+*.onnx
+*.pt
+*.bin
 docker/
 # Translations
 *.mo

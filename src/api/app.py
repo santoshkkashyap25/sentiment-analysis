@@ -69,25 +69,92 @@ monitor = ModelMonitor(db_path=str(BASE_DIR / 'monitoring.db'))
 
 
 class FeedbackAnalysisAPI:
-    """Main API class for feedback analysis inference"""
+    """Main API class for feedback analysis inference with tiered model loading."""
 
     def __init__(self):
         self.model = None
         self.feature_engineer = None
         self.preprocessor = DataPreprocessor({})
+        self.onnx_session = None
+        self.onnx_tokenizer = None
+        self.transformer_model = None
+        self.transformer_tokenizer = None
+        self.calibrator = None
+        self.device = None
+        self.is_onnx = False
+        self.is_transformer = False
         self.load_model_and_extractors()
 
     def load_model_and_extractors(self):
-        """Load pre-trained model and feature extractors"""
-        try:
-            model_path = os.getenv('MODEL_PATH', str(BASE_DIR / 'data' / 'models' / 'best_model.pkl'))
-            if os.path.exists(model_path):
-                with open(model_path, 'rb') as f:
-                    self.model = pickle.load(f)
-                logger.info(f"Model loaded successfully from {model_path}")
-            else:
-                logger.warning(f"Model file not found at {model_path}")
+        """Tiered model loading: 1) ONNX INT8 Runtime, 2) PyTorch Transformer, 3) Classical GBDT."""
+        transformer_dir = BASE_DIR / 'data' / 'models' / 'transformer_sentiment'
 
+        # Tier 1: Check for Quantized INT8 ONNX Model (Ultra-Lean CPU Execution, ~230 MB RAM)
+        quantized_path = transformer_dir / 'model_quantized.onnx'
+        if quantized_path.exists() and (transformer_dir / 'tokenizer_config.json').exists():
+            try:
+                import onnxruntime as ort
+                from transformers import AutoTokenizer
+                from src.models.threshold_calibration import ThresholdCalibrator
+
+                opts = ort.SessionOptions()
+                opts.intra_op_num_threads = 2
+                self.onnx_session = ort.InferenceSession(
+                    str(quantized_path),
+                    sess_options=opts,
+                    providers=['CPUExecutionProvider']
+                )
+                self.onnx_tokenizer = AutoTokenizer.from_pretrained(str(transformer_dir))
+
+                calib_path = transformer_dir / 'calibration.json'
+                if calib_path.exists():
+                    self.calibrator = ThresholdCalibrator.load(str(calib_path))
+                    logger.info("Loaded decision threshold calibration for ONNX Runtime")
+                else:
+                    self.calibrator = ThresholdCalibrator()
+
+                self.is_onnx = True
+                logger.info(f"Quantized INT8 ONNX Model loaded successfully from {quantized_path} (Ultra-Lean Runtime)")
+            except Exception as e:
+                logger.warning(f"Error loading ONNX model: {e}. Checking PyTorch checkpoint.")
+
+        # Tier 2: Check for fine-tuned PyTorch Transformer model
+        if not self.is_onnx and transformer_dir.exists() and (transformer_dir / 'config.json').exists():
+            try:
+                import torch
+                from transformers import AutoTokenizer, AutoModelForSequenceClassification
+                from src.models.threshold_calibration import ThresholdCalibrator
+
+                self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                self.transformer_tokenizer = AutoTokenizer.from_pretrained(str(transformer_dir))
+                self.transformer_model = AutoModelForSequenceClassification.from_pretrained(str(transformer_dir)).to(self.device)
+                self.transformer_model.eval()
+
+                calib_path = transformer_dir / 'calibration.json'
+                if calib_path.exists():
+                    self.calibrator = ThresholdCalibrator.load(str(calib_path))
+                    logger.info("Loaded decision threshold calibration config")
+                else:
+                    self.calibrator = ThresholdCalibrator()
+
+                self.is_transformer = True
+                dev_name = torch.cuda.get_device_name(0) if self.device.type == 'cuda' else 'CPU'
+                logger.info(f"PyTorch Transformer loaded successfully on {dev_name} (Calibrated)")
+            except Exception as e:
+                logger.warning(f"Error loading Transformer model: {e}. Falling back to classical model.")
+
+        # Tier 3: Classical Scikit-Learn model & feature extractors
+        try:
+            if not self.is_onnx and not self.is_transformer:
+                model_path = os.getenv('MODEL_PATH', str(BASE_DIR / 'data' / 'models' / 'best_model.pkl'))
+                if os.path.exists(model_path):
+                    with open(model_path, 'rb') as f:
+                        self.model = pickle.load(f)
+                    logger.info(f"Model loaded successfully from {model_path}")
+                else:
+                    logger.warning(f"Model file not found at {model_path}")
+
+            # Always load feature extractors if available (for drift detection & simulation)
             extractors_path = os.getenv('EXTRACTORS_PATH', str(BASE_DIR / 'data' / 'models' / 'feature_extractors.pkl'))
             if os.path.exists(extractors_path):
                 with open(extractors_path, 'rb') as f:
@@ -127,12 +194,10 @@ class FeedbackAnalysisAPI:
         return features
 
     def predict_sentiment(self, text: str) -> Dict[str, Any]:
-        """Predict sentiment for given feedback text"""
+        """Predict sentiment for given feedback text using ONNX, Transformer or Classical model"""
         try:
-            if self.model is None or self.feature_engineer is None:
+            if not self.is_onnx and not self.is_transformer and (self.model is None or self.feature_engineer is None):
                 self.load_model_and_extractors()
-                if self.model is None:
-                    raise RuntimeError("Model is not loaded. Run pipeline.py first.")
 
             clean_text = self.preprocess_text(text)
 
@@ -144,6 +209,93 @@ class FeedbackAnalysisAPI:
                     'processed_text': '',
                     'error': 'Empty text after cleaning'
                 }
+
+            # A. ONNX Runtime INT8 Branch (Ultra-Lean CPU Execution, ~230 MB RAM)
+            if self.is_onnx and self.onnx_session is not None:
+                encoded = self.onnx_tokenizer(
+                    text,
+                    truncation=True,
+                    max_length=128,
+                    padding=True,
+                    return_tensors='np'
+                )
+                input_names = [inp.name for inp in self.onnx_session.get_inputs()]
+                onnx_inputs = {
+                    "input_ids": encoded["input_ids"],
+                    "attention_mask": encoded["attention_mask"]
+                }
+                if "token_type_ids" in input_names and "token_type_ids" in encoded:
+                    onnx_inputs["token_type_ids"] = encoded["token_type_ids"]
+
+                raw_out = self.onnx_session.run(None, onnx_inputs)[0][0]
+                exp_logits = np.exp(raw_out - np.max(raw_out))
+                probs = exp_logits / np.sum(exp_logits)
+
+                prob_dict = {
+                    'Negative': round(float(probs[0]), 4),
+                    'Neutral': round(float(probs[1]), 4),
+                    'Positive': round(float(probs[2]), 4)
+                }
+
+                if self.calibrator:
+                    sentiment, confidence = self.calibrator.predict_single(prob_dict)
+                else:
+                    pred_idx = int(np.argmax(probs))
+                    sentiment = ['Negative', 'Neutral', 'Positive'][pred_idx]
+                    confidence = round(float(np.max(probs)), 4)
+
+                pred_map = {'Negative': 0, 'Neutral': 1, 'Positive': 2}
+                return {
+                    'prediction_id': pred_map.get(sentiment, 1),
+                    'sentiment': sentiment,
+                    'confidence': confidence,
+                    'probabilities': prob_dict,
+                    'processed_text': clean_text,
+                    'runtime': 'onnx-int8-quantized',
+                    'error': None
+                }
+
+            # B. Transformer Inference Branch (GPU Accelerated)
+            if self.is_transformer and self.transformer_model is not None:
+                import torch
+                with torch.no_grad():
+                    inputs = self.transformer_tokenizer(
+                        text,
+                        truncation=True,
+                        max_length=128,
+                        padding=True,
+                        return_tensors='pt'
+                    ).to(self.device)
+                    outputs = self.transformer_model(**inputs)
+                    probs = torch.softmax(outputs.logits, dim=-1).cpu().numpy()[0]
+
+                prob_dict = {
+                    'Negative': round(float(probs[0]), 4),
+                    'Neutral': round(float(probs[1]), 4),
+                    'Positive': round(float(probs[2]), 4)
+                }
+
+                if self.calibrator:
+                    sentiment, confidence = self.calibrator.predict_single(prob_dict)
+                else:
+                    pred_idx = int(np.argmax(probs))
+                    sentiment = ['Negative', 'Neutral', 'Positive'][pred_idx]
+                    confidence = round(float(np.max(probs)), 4)
+
+                pred_map = {'Negative': 0, 'Neutral': 1, 'Positive': 2}
+                return {
+                    'prediction_id': pred_map.get(sentiment, 1),
+                    'sentiment': sentiment,
+                    'confidence': confidence,
+                    'probabilities': prob_dict,
+                    'processed_text': clean_text,
+                    'runtime': 'pytorch-transformer',
+                    'error': None
+                }
+
+            # C. Classical ML Branch (Gradient Boosting / Logistic Regression)
+            if self.model is None:
+                raise RuntimeError("Model is not loaded. Run pipeline.py first.")
 
             features = self.extract_features(clean_text)
             prediction = int(self.model.predict(features)[0])
@@ -202,11 +354,13 @@ async def serve_dashboard():
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint"""
+    is_loaded = (api.onnx_session is not None or api.transformer_model is not None or api.model is not None)
+    version = '3.0-ONNX-INT8' if api.is_onnx else ('2.0-Transformer' if api.is_transformer else '1.0-Classical')
     return {
-        'status': 'healthy',
+        'status': 'healthy' if is_loaded else 'degraded',
         'timestamp': datetime.now().isoformat(),
-        'model_loaded': api.model is not None,
-        'model_version': '1.0'
+        'model_loaded': is_loaded,
+        'model_version': version
     }
 
 
@@ -239,7 +393,7 @@ async def predict(payload: PredictRequest):
         logger.warning(f"Could not log prediction to monitoring DB: {e}")
 
     result['timestamp'] = datetime.now().isoformat()
-    result['model_version'] = '1.0'
+    result['model_version'] = '3.0-ONNX-INT8' if api.is_onnx else ('2.0-Transformer' if api.is_transformer else '1.0')
     result['response_time_ms'] = latency_ms
 
     return result
@@ -248,12 +402,14 @@ async def predict(payload: PredictRequest):
 @app.get("/stats", response_model=StatsResponse)
 async def get_stats():
     """Get API statistics"""
+    model_type = 'ONNX-INT8-Quantized' if api.is_onnx else ('PyTorch-Transformer' if api.is_transformer else (type(api.model).__name__ if api.model else 'None'))
+    version = '3.0-ONNX-INT8' if api.is_onnx else ('2.0-Transformer' if api.is_transformer else '1.0-Classical')
     return {
         'total_requests': request_count,
         'uptime': str(datetime.now() - start_time_server),
         'model_info': {
-            'version': '1.0',
-            'type': type(api.model).__name__ if api.model else 'None',
+            'version': version,
+            'type': model_type,
             'classes': ['Negative', 'Neutral', 'Positive']
         }
     }

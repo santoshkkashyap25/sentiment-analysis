@@ -1,0 +1,45 @@
+{
+  "model_name": "roberta-base",
+  "device": "cuda",
+  "gpu_name": "NVIDIA GeForce RTX 5050 Laptop GPU",
+  "epochs": 3,
+  "batch_size": 16,
+  "learning_rate": 2e-05,
+  "use_cosine": true,
+  "use_swa": true,
+  "total_duration_seconds": 5268.36,
+  "best_validation_metrics": {
+    "epoch": 3,
+    "train_loss": 0.49553507936000823,
+    "val_accuracy": 0.8526666666666667,
+    "val_weighted_f1": 0.8533040564850523,
+    "val_macro_f1": 0.8383265379438104,
+    "epoch_seconds": 1727.02
+  },
+  "training_history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.6494605304499467,
+      "val_accuracy": 0.836,
+      "val_weighted_f1": 0.8382963051478027,
+      "val_macro_f1": 0.8225971799853907,
+      "epoch_seconds": 1644.93
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.5575473392754793,
+      "val_accuracy": 0.8519166666666667,
+      "val_weighted_f1": 0.8522850530440759,
+      "val_macro_f1": 0.8369851343329268,
+      "epoch_seconds": 1734.9
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.49553507936000823,
+      "val_accuracy": 0.8526666666666667,
+      "val_weighted_f1": 0.8533040564850523,
+      "val_macro_f1": 0.8383265379438104,
+      "epoch_seconds": 1727.02
+    }
+  ]
+}

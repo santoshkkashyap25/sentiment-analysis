@@ -1,0 +1,16 @@
+{
+  "uncalibrated": {
+    "accuracy": 0.85275,
+    "weighted_f1": 0.8535012223428277,
+    "macro_f1": 0.8381456327844604,
+    "negative_recall": 0.852245292129406,
+    "negative_precision": 0.8473355736917907
+  },
+  "calibrated": {
+    "accuracy": 0.848,
+    "weighted_f1": 0.8458038065573619,
+    "macro_f1": 0.8280863294426967,
+    "negative_recall": 0.9034282955094157,
+    "negative_precision": 0.8016281062553556
+  }
+}

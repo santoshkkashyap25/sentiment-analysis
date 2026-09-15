@@ -1,0 +1,28 @@
+{
+  "thresholds": {
+    "negative_threshold": 0.2,
+    "neutral_threshold": 0.333,
+    "positive_threshold": 0.333
+  },
+  "baseline_metrics": {
+    "accuracy": 0.8526666666666667,
+    "weighted_f1": 0.8533040564850523,
+    "macro_f1": 0.8383265379438104,
+    "negative_recall": 0.8510021733880705,
+    "negative_precision": 0.8563791008505468,
+    "negative_f1": 0.8536821705426356
+  },
+  "calibrated_metrics": {
+    "accuracy": 0.852,
+    "weighted_f1": 0.8499479625061083,
+    "macro_f1": 0.8335384314127116,
+    "negative_recall": 0.9036464622071964,
+    "negative_precision": 0.8163176265270506,
+    "negative_f1": 0.8577650429799427
+  },
+  "class_names": [
+    "Negative",
+    "Neutral",
+    "Positive"
+  ]
+}

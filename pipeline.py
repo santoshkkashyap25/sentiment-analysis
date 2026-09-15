@@ -52,7 +52,7 @@ class FeedbackAnalysisPipeline:
         ]
 
         raw_data = ingestion.ingest_multiple_sources(sources)
-        raw_data.to_csv('data/raw/combined_reviews.csv', index=False)
+        raw_data.to_csv('data/raw/Reviews.csv', index=False)
         self.logger.info(f"Raw data saved: {len(raw_data)} records")
 
         return raw_data
@@ -251,14 +251,189 @@ class FeedbackAnalysisPipeline:
             self.logger.error(f"Pipeline failed: {e}")
             raise
 
+    def run_transformer_pipeline(
+        self,
+        sample_size: int = 120000,
+        full_dataset: bool = False,
+        epochs: int = 3,
+        batch_size: int = 16,
+        model_name: str = "roberta-base",
+        use_cosine: bool = True,
+        use_swa: bool = True,
+        export_onnx: bool = True
+    ):
+        """Run end-to-end Pretrained Transformer Fine-Tuning with GPU, SWA, Cosine LR, and ONNX INT8 export."""
+        import json
+        from sklearn.metrics import accuracy_score, precision_recall_fscore_support, f1_score
+        from torch.utils.data import DataLoader
+        from src.models.transformer_trainer import TransformerTrainer, FeedbackDataset
+        from src.models.threshold_calibration import ThresholdCalibrator
+
+        self.logger.info("=" * 60)
+        self.logger.info(f"STARTING TRANSFORMER GPU PIPELINE ({model_name.upper()} NVIDIA ACCELERATED)")
+        self.logger.info("=" * 60)
+
+        # Prevent Windows from entering modern standby / suspending GPU during background training
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                # ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x00000001) | ES_AWAYMODE_REQUIRED (0x00000040)
+                ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001 | 0x00000040)
+                self.logger.info("Windows sleep prevention activated (System & AwayMode enabled for uninterrupted GPU training).")
+            except Exception as e:
+                self.logger.warning(f"Could not set thread execution state: {e}")
+
+        processed_data_path = "data/processed/processed_reviews.csv"
+        raw_data_path = "data/raw/Reviews.csv"
+
+        if os.path.exists(processed_data_path):
+            self.logger.info(f"Loading processed reviews from {processed_data_path}...")
+            df = pd.read_csv(processed_data_path)
+        elif os.path.exists(raw_data_path):
+            self.logger.info(f"Loading raw reviews from {raw_data_path}...")
+            df = pd.read_csv(raw_data_path)
+            preprocessor = DataPreprocessor(self.config)
+            df = preprocessor.preprocess_pipeline(df)
+        else:
+            df = self.run_data_ingestion()
+            df = self.run_preprocessing(df)
+
+        trainer = TransformerTrainer(
+            model_name=model_name,
+            batch_size=batch_size,
+            epochs=epochs,
+            use_cosine=use_cosine,
+            use_swa=use_swa
+        )
+
+        train_df, val_df, test_df = trainer.prepare_dataset(
+            df=df,
+            sample_size=sample_size,
+            full_dataset=full_dataset
+        )
+
+        output_dir = "data/models/transformer_sentiment"
+        training_report = trainer.train(train_df, val_df, output_dir=output_dir)
+
+        # 1. Validation Probabilities & Threshold Calibration
+        self.logger.info("Running Decision Threshold Calibration on Validation Set...")
+        text_col = "fused_text" if "fused_text" in val_df.columns else ("reviewText" if "reviewText" in val_df.columns else "reviewText_clean")
+        val_dataset = FeedbackDataset(val_df[text_col].values, val_df["label"].values, trainer.tokenizer, trainer.max_length)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+        val_probs, val_labels = trainer.predict_probabilities(val_loader)
+
+        calibrator = ThresholdCalibrator()
+        calibration_results = calibrator.fit(val_probs, val_labels)
+        calibrator.save(os.path.join(output_dir, "calibration.json"))
+
+        # 2. Test Set Evaluation (Uncalibrated vs Calibrated)
+        self.logger.info("Evaluating on Untouched Held-Out Test Set...")
+        test_probs, test_labels = trainer.evaluate_test_set(test_df, text_column=text_col)
+
+        raw_test_preds = np.argmax(test_probs, axis=1)
+        calibrated_test_preds = calibrator.predict(test_probs)
+
+        p_raw, r_raw, f1_raw, _ = precision_recall_fscore_support(test_labels, raw_test_preds, average=None, zero_division=0)
+        p_cal, r_cal, f1_cal, _ = precision_recall_fscore_support(test_labels, calibrated_test_preds, average=None, zero_division=0)
+
+        test_metrics = {
+            "uncalibrated": {
+                "accuracy": float(accuracy_score(test_labels, raw_test_preds)),
+                "weighted_f1": float(f1_score(test_labels, raw_test_preds, average="weighted", zero_division=0)),
+                "macro_f1": float(f1_score(test_labels, raw_test_preds, average="macro", zero_division=0)),
+                "negative_recall": float(r_raw[0]),
+                "negative_precision": float(p_raw[0]),
+            },
+            "calibrated": {
+                "accuracy": float(accuracy_score(test_labels, calibrated_test_preds)),
+                "weighted_f1": float(f1_score(test_labels, calibrated_test_preds, average="weighted", zero_division=0)),
+                "macro_f1": float(f1_score(test_labels, calibrated_test_preds, average="macro", zero_division=0)),
+                "negative_recall": float(r_cal[0]),
+                "negative_precision": float(p_cal[0]),
+            }
+        }
+
+        self.logger.info("=== HELD-OUT TEST SET RESULTS ===")
+        self.logger.info(
+            f"Uncalibrated (argmax): Accuracy={test_metrics['uncalibrated']['accuracy']:.4f} | "
+            f"Weighted F1={test_metrics['uncalibrated']['weighted_f1']:.4f} | "
+            f"Negative Recall={test_metrics['uncalibrated']['negative_recall']:.4f}"
+        )
+        self.logger.info(
+            f"Calibrated Thresholds: Accuracy={test_metrics['calibrated']['accuracy']:.4f} | "
+            f"Weighted F1={test_metrics['calibrated']['weighted_f1']:.4f} | "
+            f"Negative Recall={test_metrics['calibrated']['negative_recall']:.4f}"
+        )
+
+        # Save test evaluation report
+        with open(os.path.join(output_dir, "test_evaluation.json"), "w", encoding="utf-8") as f:
+            json.dump(test_metrics, f, indent=2)
+
+        # 3. Automatic ONNX & INT8 Quantization Export
+        parity_results = None
+        if export_onnx:
+            self.logger.info("Starting ONNX and INT8 Dynamic Quantization Export for lean deployment...")
+            try:
+                from src.models.onnx_exporter import OnnxExporter
+                exporter = OnnxExporter(output_dir)
+                onnx_path = exporter.export_to_onnx()
+                quant_path = exporter.quantize_int8(onnx_path)
+                parity_results = exporter.verify_parity(quant_path)
+                self.logger.info(
+                    f"INT8 ONNX model export successful: {quant_path} (Parity verified: {parity_results.get('verified')})"
+                )
+            except Exception as e:
+                self.logger.error(f"ONNX export encountered error: {e}", exc_info=True)
+
+        # Log to MLOps monitor
+        monitor = ModelMonitor()
+        monitor.log_performance_metrics(
+            accuracy=test_metrics["calibrated"]["accuracy"],
+            f1=test_metrics["calibrated"]["weighted_f1"],
+            sample_size=len(test_labels)
+        )
+
+        self.logger.info("Transformer GPU Pipeline completed successfully!")
+
+        return {
+            "trainer": trainer,
+            "calibrator": calibrator,
+            "training_report": training_report,
+            "calibration_results": calibration_results,
+            "test_metrics": test_metrics,
+            "onnx_parity": parity_results
+        }
+
 
 def main():
     """Main function"""
     parser = argparse.ArgumentParser(description='Run Customer Feedback Analysis Pipeline')
     parser.add_argument('--config', type=str, default='config.json',
                        help='Configuration file path')
-    parser.add_argument('--skip-download', action='store_true',
-                       help='Skip data download if files exist')
+    parser.add_argument('--model-type', type=str, choices=['classical', 'transformer'],
+                       default='transformer', help='Model family: classical (CPU) or transformer (GPU)')
+    parser.add_argument('--model-name', type=str, default='roberta-base',
+                       help='Pretrained transformer architecture (default: roberta-base)')
+    parser.add_argument('--sample-size', type=int, default=120000,
+                       help='Number of high-signal reviews to sample (default: 120000)')
+    parser.add_argument('--full-dataset', action='store_true',
+                       help='Train on full 393,000+ review dataset instead of high-signal subset')
+    parser.add_argument('--epochs', type=int, default=3,
+                       help='Number of training epochs for transformer (default: 3)')
+    parser.add_argument('--batch-size', type=int, default=16,
+                       help='Batch size for transformer training (default: 16)')
+    parser.add_argument('--use-cosine', action='store_true', default=True,
+                       help='Enable Cosine Annealing learning rate schedule (default: True)')
+    parser.add_argument('--no-cosine', dest='use_cosine', action='store_false',
+                       help='Disable Cosine Annealing learning rate schedule')
+    parser.add_argument('--use-swa', action='store_true', default=True,
+                       help='Enable Stochastic Weight Averaging on final epoch (default: True)')
+    parser.add_argument('--no-swa', dest='use_swa', action='store_false',
+                       help='Disable Stochastic Weight Averaging')
+    parser.add_argument('--export-onnx', action='store_true', default=True,
+                       help='Automatically export to INT8 ONNX after training (default: True)')
+    parser.add_argument('--no-export-onnx', dest='export_onnx', action='store_false',
+                       help='Skip INT8 ONNX export')
 
     args = parser.parse_args()
 
@@ -266,19 +441,42 @@ def main():
     config_dict = config.to_dict()
 
     pipeline = FeedbackAnalysisPipeline(config_dict)
-    results = pipeline.run_full_pipeline()
 
-    print(f"Best Model Performance:")
-    print(f"Accuracy: {results['test_results']['basic_metrics']['accuracy']:.4f}")
-    print(f"F1-Score: {results['test_results']['basic_metrics']['f1']:.4f}")
-    print(f"Precision: {results['test_results']['basic_metrics']['precision']:.4f}")
-    print(f"Recall: {results['test_results']['basic_metrics']['recall']:.4f}")
+    if args.model_type == 'transformer':
+        results = pipeline.run_transformer_pipeline(
+            sample_size=args.sample_size,
+            full_dataset=args.full_dataset,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            model_name=args.model_name,
+            use_cosine=args.use_cosine,
+            use_swa=args.use_swa,
+            export_onnx=args.export_onnx
+        )
+        print("\n=== TRANSFORMER GPU TRAINING COMPLETE ===")
+        m = results['test_metrics']['calibrated']
+        print(f"Model: {args.model_name}")
+        print(f"Accuracy: {m['accuracy']:.4f}")
+        print(f"Weighted F1: {m['weighted_f1']:.4f}")
+        print(f"Macro F1: {m['macro_f1']:.4f}")
+        print(f"Negative Recall: {m['negative_recall']:.4f}")
+        print(f"Negative Precision: {m['negative_precision']:.4f}")
+        print(f"Calibrated Thresholds: {results['calibration_results']['thresholds']}")
+        if results.get('onnx_parity'):
+            print(f"ONNX INT8 Parity Verified: {results['onnx_parity'].get('verified')}")
+    else:
+        results = pipeline.run_full_pipeline()
+        print(f"\nBest Model Performance:")
+        print(f"Accuracy: {results['test_results']['basic_metrics']['accuracy']:.4f}")
+        print(f"F1-Score: {results['test_results']['basic_metrics']['f1']:.4f}")
+        print(f"Precision: {results['test_results']['basic_metrics']['precision']:.4f}")
+        print(f"Recall: {results['test_results']['basic_metrics']['recall']:.4f}")
 
-    retrain_decision = results['retrain_decision']
-    print("\n=== MONITORING SUMMARY ===")
-    print(f"Should Retrain? {retrain_decision['should_retrain']}")
-    if retrain_decision['reasons']:
-        print(f"Reasons: {', '.join(retrain_decision['reasons'])}")
+        retrain_decision = results['retrain_decision']
+        print("\n=== MONITORING SUMMARY ===")
+        print(f"Should Retrain? {retrain_decision['should_retrain']}")
+        if retrain_decision['reasons']:
+            print(f"Reasons: {', '.join(retrain_decision['reasons'])}")
 
 
 if __name__ == '__main__':
