@@ -25,6 +25,14 @@ class DataPreprocessor:
     def __init__(self, config: Dict):
         self.config = config
         self.logger = logging.getLogger(__name__)
+
+        # Ensure essential NLTK resources are available
+        for res in ['punkt', 'punkt_tab', 'stopwords', 'wordnet']:
+            try:
+                nltk.download(res, quiet=True)
+            except Exception:
+                pass
+
         try:
             self.stop_words = set(stopwords.words('english'))
         except Exception:
@@ -65,7 +73,11 @@ class DataPreprocessor:
         text = re.sub(r'[^a-zA-Z\s]', '', text)
         text = re.sub(r'\s+', ' ', text).strip()
 
-        tokens = word_tokenize(text)
+        try:
+            tokens = word_tokenize(text)
+        except Exception:
+            tokens = text.split()
+
         tokens = [token for token in tokens if token not in self.stop_words]
         if self.lemmatizer:
             tokens = [self.lemmatizer.lemmatize(token) for token in tokens]
