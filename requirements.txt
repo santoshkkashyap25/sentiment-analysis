@@ -16,3 +16,5 @@ python-dotenv
 tqdm
 joblib
 requests
+transformers>=4.35.0
+onnxruntime>=1.16.0

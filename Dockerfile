@@ -35,5 +35,6 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:5000/health || exit 1
 
-# Start FastAPI server via Uvicorn
-CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "5000"]
+# Start FastAPI server via Uvicorn with dynamic Render PORT support
+CMD ["sh", "-c", "uvicorn src.api.app:app --host 0.0.0.0 --port ${PORT:-5000}"]
+
