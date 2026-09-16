@@ -1,0 +1,77 @@
+name: Keep Render Service Awake
+
+on:
+  schedule:
+    # Run every 14 minutes to prevent Render free-tier 15-min idle spin-down
+    - cron: '*/14 * * * *'
+  workflow_dispatch:
+    inputs:
+      service_url:
+        description: 'URL of the service to ping (leave blank to use default or secret)'
+        required: false
+        default: ''
+
+jobs:
+  ping:
+    name: Ping SentiPulse Service
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Resolve Service URL
+        id: resolve-url
+        run: |
+          # Priority: Manual input > Repository Secret > Repository Variable > Default URL
+          if [ -n "${{ github.event.inputs.service_url }}" ]; then
+            URL="${{ github.event.inputs.service_url }}"
+          elif [ -n "${{ secrets.RENDER_APP_URL }}" ]; then
+            URL="${{ secrets.RENDER_APP_URL }}"
+          elif [ -n "${{ vars.RENDER_APP_URL }}" ]; then
+            URL="${{ vars.RENDER_APP_URL }}"
+          else
+            URL="https://sentipulse.onrender.com/health"
+          fi
+
+          # Ensure /health endpoint is pinged if root domain provided
+          if [[ "$URL" != *"/health"* ]]; then
+            URL="${URL%/}/health"
+          fi
+
+          echo "target_url=$URL" >> $GITHUB_OUTPUT
+          echo "Target URL: $URL"
+
+      - name: Send Keep-Warm Ping
+        run: |
+          URL="${{ steps.resolve-url.outputs.target_url }}"
+          echo "Pinging $URL..."
+          
+          # Ping with connect timeout and retry logic
+          HTTP_RESPONSE=$(curl -s -S -w "\nHTTP_STATUS:%{http_code}\nTIME_TOTAL:%{time_total}s" \
+            --connect-timeout 20 \
+            --max-time 60 \
+            --retry 2 \
+            --retry-delay 5 \
+            "$URL" || true)
+
+          HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed -e '/HTTP_STATUS:/,$d')
+          HTTP_STATUS=$(echo "$HTTP_RESPONSE" | grep "HTTP_STATUS:" | cut -d':' -f2)
+          TIME_TOTAL=$(echo "$HTTP_RESPONSE" | grep "TIME_TOTAL:" | cut -d':' -f2)
+
+          echo "Response Status: $HTTP_STATUS"
+          echo "Response Time: $TIME_TOTAL"
+          echo "Response Body: $HTTP_BODY"
+
+          # Write summary to GitHub Actions job summary
+          echo "### Keep-Warm Ping Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Target URL** | \`$URL\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **HTTP Status** | \`$HTTP_STATUS\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Latency** | \`$TIME_TOTAL\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Timestamp** | \`$(date -u '+%Y-%m-%d %H:%M:%S UTC')\` |" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 400 ]; then
+            echo "Service is warm and responsive!"
+          else
+            echo "::warning::Service returned non-200 status ($HTTP_STATUS). It may be waking up from cold start."
+          fi
