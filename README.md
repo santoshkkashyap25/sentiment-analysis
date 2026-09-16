@@ -61,7 +61,7 @@ flowchart TD
 
 ---
 
-## 📊 Validated Benchmarks
+## Validated Benchmarks
 
 All metrics evaluated on a held-out test set of **12,000 Amazon customer reviews** using an NVIDIA GeForce RTX 5050 Laptop GPU for training and CPU for INT8 ONNX deployment:
 
@@ -81,7 +81,7 @@ All metrics evaluated on a held-out test set of **12,000 Amazon customer reviews
 
 ---
 
-## 🛠️ Offline Model Training & Reproduction
+## Offline Model Training & Reproduction
 
 To train or reproduce the pipeline from scratch on your own dataset:
 
@@ -99,5 +99,5 @@ Pipeline execution steps:
 
 ---
 
-## 📄 License
+## License
 Distributed under the MIT License. See `LICENSE` for more information.
