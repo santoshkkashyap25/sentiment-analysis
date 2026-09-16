@@ -79,6 +79,8 @@ class FeedbackAnalysisAPI:
         self.preprocessor = DataPreprocessor({})
         self.onnx_session = None
         self.onnx_tokenizer = None
+        self.raw_tokenizer = None
+        self.is_raw_tokenizer = False
         self.transformer_model = None
         self.transformer_tokenizer = None
         self.calibrator = None
@@ -105,10 +107,9 @@ class FeedbackAnalysisAPI:
             except Exception as e:
                 logger.error(f"Error decompressing model_quantized.onnx.gz: {e}")
 
-        if quantized_path.exists() and (transformer_dir / 'tokenizer_config.json').exists():
+        if quantized_path.exists() and ((transformer_dir / 'tokenizer.json').exists() or (transformer_dir / 'tokenizer_config.json').exists()):
             try:
                 import onnxruntime as ort
-                from transformers import AutoTokenizer
                 from src.models.threshold_calibration import ThresholdCalibrator
 
                 opts = ort.SessionOptions()
@@ -118,7 +119,26 @@ class FeedbackAnalysisAPI:
                     sess_options=opts,
                     providers=['CPUExecutionProvider']
                 )
-                self.onnx_tokenizer = AutoTokenizer.from_pretrained(str(transformer_dir))
+
+                # Ultra-lean tokenizer via 'tokenizers' directly (avoids importing heavy PyTorch/CUDA)
+                tokenizer_json = transformer_dir / 'tokenizer.json'
+                if tokenizer_json.exists():
+                    try:
+                        from tokenizers import Tokenizer
+                        self.raw_tokenizer = Tokenizer.from_file(str(tokenizer_json))
+                        self.raw_tokenizer.enable_truncation(max_length=128)
+                        self.raw_tokenizer.enable_padding(length=128, pad_id=1, pad_token='<pad>')
+                        self.is_raw_tokenizer = True
+                        logger.info("Loaded ultra-lean Rust Tokenizer (~15 MB RAM, zero-torch)")
+                    except Exception as e:
+                        logger.warning(f"Failed to load raw Tokenizer: {e}")
+                        self.is_raw_tokenizer = False
+                else:
+                    self.is_raw_tokenizer = False
+
+                if not getattr(self, 'is_raw_tokenizer', False):
+                    from transformers import AutoTokenizer
+                    self.onnx_tokenizer = AutoTokenizer.from_pretrained(str(transformer_dir))
 
                 calib_path = transformer_dir / 'calibration.json'
                 if calib_path.exists():
@@ -224,22 +244,27 @@ class FeedbackAnalysisAPI:
                     'error': 'Empty text after cleaning'
                 }
 
-            # A. ONNX Runtime INT8 Branch (Ultra-Lean CPU Execution, ~230 MB RAM)
+            # A. ONNX Runtime INT8 Branch (Ultra-Lean CPU Execution, ~160 MB RAM)
             if self.is_onnx and self.onnx_session is not None:
-                encoded = self.onnx_tokenizer(
-                    text,
-                    truncation=True,
-                    max_length=128,
-                    padding=True,
-                    return_tensors='np'
-                )
-                input_names = [inp.name for inp in self.onnx_session.get_inputs()]
+                if getattr(self, 'is_raw_tokenizer', False) and self.raw_tokenizer is not None:
+                    enc = self.raw_tokenizer.encode(text)
+                    input_ids = np.array([enc.ids], dtype=np.int64)
+                    attention_mask = np.array([enc.attention_mask], dtype=np.int64)
+                else:
+                    encoded = self.onnx_tokenizer(
+                        text,
+                        truncation=True,
+                        max_length=128,
+                        padding=True,
+                        return_tensors='np'
+                    )
+                    input_ids = encoded["input_ids"]
+                    attention_mask = encoded["attention_mask"]
+
                 onnx_inputs = {
-                    "input_ids": encoded["input_ids"],
-                    "attention_mask": encoded["attention_mask"]
+                    "input_ids": input_ids,
+                    "attention_mask": attention_mask
                 }
-                if "token_type_ids" in input_names and "token_type_ids" in encoded:
-                    onnx_inputs["token_type_ids"] = encoded["token_type_ids"]
 
                 raw_out = self.onnx_session.run(None, onnx_inputs)[0][0]
                 exp_logits = np.exp(raw_out - np.max(raw_out))

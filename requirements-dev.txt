@@ -1,0 +1,14 @@
+# Development and offline training dependencies
+-r requirements.txt
+kaggle
+xgboost
+imblearn
+sentence-transformers
+textblob
+matplotlib
+seaborn
+pytest
+pytest-cov
+tqdm
+joblib
+transformers>=4.35.0
