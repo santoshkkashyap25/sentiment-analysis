@@ -29,37 +29,39 @@ Most open-source sentiment models suffer from two critical limitations in real-w
 
 ## System Architecture
 
-```text
-[ Incoming Customer Feedback ]
-               │
-               ▼
-   [ Data Preprocessing Pipeline ]
-   (HTML strip, lowercasing, stop-words, lemmatization)
-               │
-               ▼
- ┌────────────────────────────────────────┐
- │   SentiPulse Inference Engine (FastAPI)│
- │                                        │
- │   1. Tokenizer (RoBERTa Fast BPE)      │
- │   2. ONNX Runtime (INT8 CPU Session)   │
- │   3. Raw Logits ──► Calibrated Softmax │
- │      (τ_neg = 0.200, τ_pos = 0.450)    │
- └───────────────────┬────────────────────┘
-                     │
-         ┌───────────┴───────────┐
-         ▼                       ▼
-[ Prediction Output ]   [ SQLite Audit Log ]
-(Sentiment, Conf,       (Latency, Query Text,
- Probabilities, Tokens)  Timestamps)
-                                 │
-                                 ▼
-                    [ Live KS Drift Detector ]
-                    (2-Sample KS Test: p < 0.05
-                     Live vs. Training Corpus)
-                                 │
-                                 ▼
-                    [ Dual-Tab Web Dashboard ]
-                    (Analyzer UI + MLOps Telemetry)
+```mermaid
+flowchart TD
+    subgraph Ingestion ["1. Feedback Ingestion & Preprocessing"]
+        A["Incoming Customer Review"] --> B["Data Preprocessor"]
+        B --> B1["HTML Stripping & Lowercasing"]
+        B1 --> B2["Token Normalization & Lemmatization"]
+    end
+
+    subgraph InferenceEngine ["2. SentiPulse Inference Engine (FastAPI)"]
+        B2 --> C["RoBERTa Fast BPE Tokenizer"]
+        C --> D["ONNX Runtime INT8 Engine (~230 MB RAM)"]
+        D --> E["Raw Model Logits"]
+        E --> F["Threshold Calibration Engine"]
+        F --> G["Calibrated Prediction (Negative Recall > 90%)"]
+    end
+
+    subgraph TelemetryOps ["3. Telemetry & Statistical Drift Monitoring"]
+        G --> H["Client API Response"]
+        G --> I[("SQLite Database: monitoring.db")]
+        I --> J["Live Query Feature Extraction (Last 20-50 queries)"]
+        K[("Reference Baseline: features_reference.pkl")] --> L["Two-Sample Kolmogorov-Smirnov Test (p < 0.05)"]
+        J --> L
+        L --> M{"Shifted Features > 10%?"}
+        M -- "Yes" --> N["Trigger Automated Retraining Alert"]
+        M -- "No" --> O["Traffic Healthy (No Retraining Required)"]
+    end
+
+    subgraph WebUI ["4. Dual-Mode Web Console"]
+        H --> P["Tab 1: Interactive Sentiment Analyzer"]
+        I --> Q["Tab 2: Real-Time MLOps Telemetry Charts"]
+        N --> Q
+        O --> Q
+    end
 ```
 
 ---
