@@ -552,7 +552,10 @@ async def simulate_drift():
             api.load_model_and_extractors()
 
         ood_clean = [api.preprocess_text(s) for s in ood_samples]
-        ood_features = api.feature_engineer.extract_tfidf_features(ood_clean, is_training=False)
+        df_ood = pd.DataFrame({'reviewText_clean': ood_clean})
+        basic_ood = api.feature_engineer.extract_basic_features(df_ood, 'reviewText_clean')
+        tfidf_ood = api.feature_engineer.extract_tfidf_features(ood_clean, is_training=False)
+        ood_features = api.feature_engineer.combine_features(basic_ood, tfidf_ood)
 
         # Load reference baseline features
         ref_path = BASE_DIR / "data" / "processed" / "features_reference.pkl"
@@ -562,7 +565,10 @@ async def simulate_drift():
         else:
             # Fallback baseline
             ref_clean = ["great product high quality fast shipping wonderful experience love it"] * 40
-            ref_features = api.feature_engineer.extract_tfidf_features(ref_clean, is_training=False)
+            df_ref = pd.DataFrame({'reviewText_clean': ref_clean})
+            basic_ref = api.feature_engineer.extract_basic_features(df_ref, 'reviewText_clean')
+            tfidf_ref = api.feature_engineer.extract_tfidf_features(ref_clean, is_training=False)
+            ref_features = api.feature_engineer.combine_features(basic_ref, tfidf_ref)
 
         # Run statistical drift detection
         drift_result = monitor.detect_data_drift(ref_features, ood_features, threshold=0.05)
@@ -612,7 +618,10 @@ async def check_live_drift():
             api.load_model_and_extractors()
 
         clean_texts = [api.preprocess_text(t) for t in texts]
-        live_features = api.feature_engineer.extract_tfidf_features(clean_texts, is_training=False)
+        df_live = pd.DataFrame({'reviewText_clean': clean_texts})
+        basic_feats = api.feature_engineer.extract_basic_features(df_live, 'reviewText_clean')
+        tfidf_feats = api.feature_engineer.extract_tfidf_features(clean_texts, is_training=False)
+        live_features = api.feature_engineer.combine_features(basic_feats, tfidf_feats)
 
         ref_path = BASE_DIR / "data" / "processed" / "features_reference.pkl"
         if ref_path.exists():
@@ -620,7 +629,10 @@ async def check_live_drift():
                 ref_features = pickle.load(f)
         else:
             ref_clean = ["great product high quality fast shipping wonderful experience love it"] * 40
-            ref_features = api.feature_engineer.extract_tfidf_features(ref_clean, is_training=False)
+            df_ref = pd.DataFrame({'reviewText_clean': ref_clean})
+            basic_ref = api.feature_engineer.extract_basic_features(df_ref, 'reviewText_clean')
+            tfidf_ref = api.feature_engineer.extract_tfidf_features(ref_clean, is_training=False)
+            ref_features = api.feature_engineer.combine_features(basic_ref, tfidf_ref)
 
         drift_result = monitor.detect_data_drift(ref_features, live_features, threshold=0.05)
 
