@@ -87,6 +87,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // 1b. Header Brand Click navigates to Sentiment Analyzer tab
+  const brandHeaderBtn = document.getElementById('brandHeaderBtn') || document.querySelector('.header-brand');
+  if (brandHeaderBtn) {
+    brandHeaderBtn.addEventListener('click', () => {
+      if (typeof window.goToSentimentAnalyzer === 'function') {
+        window.goToSentimentAnalyzer();
+      } else {
+        const analyzerBtn = document.getElementById('tabBtnAnalyzer');
+        if (analyzerBtn) analyzerBtn.click();
+      }
+    });
+  }
+
   // 2. Setup Chart.js Telemetry
   function initCharts() {
     const canvasLatency = document.getElementById('latencyChart');

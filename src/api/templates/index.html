@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=3.7">
+  <link rel="stylesheet" href="/static/style.css?v=3.8">
   <!-- Chart.js for real-time MLOps telemetry charts -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
@@ -85,6 +85,23 @@
     .tab-pane.active {
       display: block !important;
     }
+    .header-brand {
+      cursor: pointer;
+      user-select: none;
+      transition: transform 0.2s ease, opacity 0.2s ease;
+    }
+    .header-brand:hover .brand-title {
+      color: #818cf8;
+      transition: color 0.2s ease;
+    }
+    .header-brand:hover .brand-icon {
+      transform: scale(1.06);
+      box-shadow: 0 6px 22px rgba(99, 102, 241, 0.6);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .header-brand:active {
+      transform: scale(0.98);
+    }
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(4px); }
       to { opacity: 1; transform: translateY(0); }
@@ -103,7 +120,7 @@
   <div class="app-container">
     <!-- Top Navigation Header -->
     <header class="header">
-      <div class="header-brand">
+      <div class="header-brand" id="brandHeaderBtn" role="button" tabindex="0" onclick="goToSentimentAnalyzer()" onkeydown="if(event.key==='Enter'||event.key===' ') goToSentimentAnalyzer()" title="Go to Sentiment Analyzer" aria-label="SentiPulse - Go to Sentiment Analyzer">
         <div class="brand-icon">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -434,8 +451,13 @@
         }, 60);
       }
     }
+    function goToSentimentAnalyzer() {
+      switchTab('tab-analyzer');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
     window.switchTab = switchTab;
+    window.goToSentimentAnalyzer = goToSentimentAnalyzer;
   </script>
-  <script src="/static/dashboard.js?v=3.7"></script>
+  <script src="/static/dashboard.js?v=3.8"></script>
 </body>
 </html>

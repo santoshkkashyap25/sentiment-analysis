@@ -108,6 +108,22 @@ body {
   display: flex;
   align-items: center;
   gap: 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
+}
+
+.header-brand:hover .brand-title {
+  color: #818cf8;
+}
+
+.header-brand:hover .brand-icon {
+  transform: scale(1.06);
+  box-shadow: 0 6px 22px rgba(99, 102, 241, 0.6);
+}
+
+.header-brand:active {
+  transform: scale(0.98);
 }
 
 .brand-icon {
@@ -120,6 +136,7 @@ body {
   align-items: center;
   justify-content: center;
   box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease;
 }
 
 .brand-title {
@@ -129,6 +146,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  transition: color 0.2s ease;
 }
 
 .brand-subtitle {
