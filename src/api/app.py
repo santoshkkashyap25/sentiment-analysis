@@ -208,7 +208,8 @@ class FeedbackAnalysisAPI:
                 self.feature_engineer.svd = extractors.get('svd')
                 logger.info("Feature extractors loaded successfully")
             else:
-                logger.warning(f"Extractors file not found at {extractors_path}")
+                self.feature_engineer = FeatureEngineer({})
+                logger.info("Default FeatureEngineer initialized (RoBERTa ONNX is active)")
 
         except Exception as e:
             logger.error(f"Error loading model/extractors: {e}")
