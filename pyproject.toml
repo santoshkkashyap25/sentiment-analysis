@@ -35,7 +35,7 @@ dev = [
 ]
 
 [project.scripts]
-run-pipeline = "main_pipeline:main"
+run-pipeline = "pipeline:main"
 
 [tool.setuptools.packages.find]
 include = ["src*"]

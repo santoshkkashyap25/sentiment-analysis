@@ -113,8 +113,8 @@ Response:
 }
 ```
 
-### Python Client Script
-Run the automated test client to verify health, inference, telemetry, and drift simulation:
+### Automated API Verification
+Run the automated test suite to verify health, inference, telemetry, and statistical drift endpoints:
 ```bash
-python call_api.py
+pytest tests/test_api.py -v
 ```
