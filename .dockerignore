@@ -1,0 +1,41 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+
+# C extensions
+*.so
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Git and IDE
+.git/
+.github/
+.gitignore
+.vscode/
+.idea/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Local databases and runtime logs
+monitoring.db
+logs/*.log
+*.log
+
+# Large training datasets
+data/raw/
+data/processed/*.csv
+
+# Raw uncompressed models (keep model_quantized.onnx.gz)
+data/models/*.pkl
+data/models/transformer_sentiment/model.safetensors
+data/models/transformer_sentiment/model_quantized.onnx
