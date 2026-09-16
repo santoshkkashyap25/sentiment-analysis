@@ -71,8 +71,8 @@ All metrics evaluated on a held-out test set of **12,000 Amazon customer reviews
 | **Weighted F1** | 81.50% | 84.58% | **84.58%** | Reliable multi-class balance |
 | **Negative Recall** | 76.40% | 79.10% | **90.34%** | **+13.94% customer complaints caught** |
 | **Negative F1** | 73.20% | 76.80% | **81.16%** | High-precision triage for churn prevention |
-| **Artifact Size** | 268 MB | 498 MB | **85.3 MB (.gz) / 120.6 MB** | Under GitHub 100 MB limit |
-| **Memory Footprint** | ~550 MB | ~1,100 MB | **~230 MB RAM** | Fits 512 MB cloud tiers |
+| **Artifact Size** | 268 MB | 498 MB | **85.3 MB (.gz) / 120.6 MB** | -75% disk footprint |
+| **Memory Footprint** | ~550 MB | ~1,100 MB | **~230 MB RAM** | -58% memory usage |
 | **CPU Latency (P50)** | ~45 ms | ~85 ms | **~25–35 ms** | Real-time interactive response |
 
 ### Quantization & Decision Calibration Tradeoffs
@@ -83,7 +83,7 @@ All metrics evaluated on a held-out test set of **12,000 Amazon customer reviews
 
 ## Offline Model Training & Reproduction
 
-To train or reproduce the pipeline from scratch on your own dataset:
+To train or reproduce the pipeline on custom feedback data (requires a CSV with text and rating columns):
 
 ```bash
 # Run transformer pipeline with Cosine Annealing, SWA & ONNX quantization
