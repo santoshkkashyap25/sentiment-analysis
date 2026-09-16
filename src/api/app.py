@@ -118,7 +118,10 @@ class FeedbackAnalysisAPI:
                 from src.models.threshold_calibration import ThresholdCalibrator
 
                 opts = ort.SessionOptions()
-                opts.intra_op_num_threads = 2
+                opts.enable_cpu_mem_arena = False
+                opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+                opts.intra_op_num_threads = 1
+                opts.inter_op_num_threads = 1
                 self.onnx_session = ort.InferenceSession(
                     str(quantized_path),
                     sess_options=opts,
@@ -211,7 +214,12 @@ class FeedbackAnalysisAPI:
             logger.error(f"Error loading model/extractors: {e}")
 
     def preprocess_text(self, text: str) -> str:
-        """Preprocess input text"""
+        """Preprocess input text without heavy NLTK overhead on transformer inference"""
+        if self.is_onnx or self.is_transformer:
+            import re
+            t = (text or "").lower()
+            t = re.sub(r'<[^>]+>', '', t)
+            return re.sub(r'\s+', ' ', t).strip()
         return self.preprocessor.clean_text(text)
 
     def extract_features(self, text: str) -> np.ndarray:
