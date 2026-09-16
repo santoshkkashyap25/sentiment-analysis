@@ -6,8 +6,6 @@ from sklearn.metrics import (
     classification_report, confusion_matrix, accuracy_score,
     precision_score, recall_score, f1_score
 )
-import matplotlib.pyplot as plt
-import seaborn as sns
 from typing import Dict, Any, Tuple
 import logging
 import warnings
@@ -44,6 +42,13 @@ class ModelEvaluator:
     def plot_confusion_matrix(self, y_true: np.ndarray, y_pred: np.ndarray,
                             target_names: list = None, figsize: Tuple = (8, 6)):
         """Plot confusion matrix"""
+        try:
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+        except ImportError:
+            self.logger.warning("matplotlib and seaborn are required to plot confusion matrix")
+            return confusion_matrix(y_true, y_pred)
+
         if target_names is None:
             target_names = ['Negative', 'Neutral', 'Positive']
 
