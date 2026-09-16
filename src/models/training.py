@@ -7,7 +7,10 @@ from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import GridSearchCV, cross_val_score
 from sklearn.metrics import accuracy_score
-from xgboost import XGBClassifier
+try:
+    from xgboost import XGBClassifier
+except ImportError:
+    XGBClassifier = None
 import pickle
 from typing import Dict, Tuple, Any
 import logging
@@ -32,8 +35,9 @@ class ModelTrainer:
             'gradient_boosting': GradientBoostingClassifier(random_state=42),
             'svm': SVC(random_state=42, probability=True),
             'mlp': MLPClassifier(random_state=42, max_iter=500),
-            'xgboost': XGBClassifier(random_state=42, eval_metric='mlogloss')
         }
+        if XGBClassifier is not None:
+            models['xgboost'] = XGBClassifier(random_state=42, eval_metric='mlogloss')
 
         self.logger.info(f"Initialized {len(models)} models")
         return models

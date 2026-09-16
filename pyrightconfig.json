@@ -1,0 +1,17 @@
+{
+  "include": [
+    "src",
+    "tests",
+    "pipeline.py"
+  ],
+  "extraPaths": [
+    "."
+  ],
+  "executionEnvironments": [
+    {
+      "root": "."
+    }
+  ],
+  "venvPath": ".",
+  "venv": ".venv"
+}

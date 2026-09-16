@@ -14,7 +14,13 @@ import sqlite3
 from datetime import datetime
 import time
 import threading
+import sys
 from pathlib import Path
+
+# Ensure project root is in sys.path for absolute 'src.*' imports
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -23,7 +29,6 @@ from src.features.feature_engineering import FeatureEngineer
 from src.data.preprocessing import DataPreprocessor
 from src.monitoring.drift_detection import ModelMonitor
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 

@@ -44,3 +44,14 @@ include = ["src*"]
 testpaths = ["tests"]
 norecursedirs = [".venv", "data", "logs", "dist", "build"]
 filterwarnings = ["ignore::DeprecationWarning", "ignore::UserWarning"]
+pythonpath = ["."]
+
+[tool.pyright]
+include = ["src", "tests", "pipeline.py"]
+extraPaths = ["."]
+executionEnvironments = [
+    { root = "." }
+]
+venvPath = "."
+venv = ".venv"
+

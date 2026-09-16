@@ -8,8 +8,12 @@ from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
 from sklearn.utils import resample
-from imblearn.over_sampling import SMOTE
-from imblearn.under_sampling import RandomUnderSampler
+try:
+    from imblearn.over_sampling import SMOTE
+    from imblearn.under_sampling import RandomUnderSampler
+except ImportError:
+    SMOTE = None
+    RandomUnderSampler = None
 from typing import Tuple, Dict
 import logging
 import warnings
@@ -96,12 +100,18 @@ class DataPreprocessor:
         self.logger.info(f"Original class distribution: {np.bincount(y)}")
 
         if strategy == 'smote':
+            if SMOTE is None:
+                raise ImportError("imblearn is required for SMOTE resampling. Install with: pip install imblearn")
             smote = SMOTE(random_state=42)
             X_resampled, y_resampled = smote.fit_resample(X, y)
         elif strategy == 'undersample':
+            if RandomUnderSampler is None:
+                raise ImportError("imblearn is required for undersampling. Install with: pip install imblearn")
             undersampler = RandomUnderSampler(random_state=42)
             X_resampled, y_resampled = undersampler.fit_resample(X, y)
         elif strategy == 'combined':
+            if SMOTE is None or RandomUnderSampler is None:
+                raise ImportError("imblearn is required for combined resampling. Install with: pip install imblearn")
             smote = SMOTE(random_state=42)
             X_temp, y_temp = smote.fit_resample(X, y)
             undersampler = RandomUnderSampler(random_state=42)

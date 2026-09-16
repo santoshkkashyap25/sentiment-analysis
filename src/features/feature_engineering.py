@@ -4,8 +4,10 @@ import pandas as pd
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from scipy.sparse import hstack, csr_matrix
-from sklearn.decomposition import TruncatedSVD
-from textblob import TextBlob
+try:
+    from textblob import TextBlob
+except ImportError:
+    TextBlob = None
 import pickle
 from typing import Dict, Tuple, List
 import logging
@@ -43,9 +45,12 @@ class FeatureEngineer:
         feature_df['uppercase_count'] = df[text_column].str.count(r'[A-Z]').fillna(0)
 
         # Subjectivity measures factual vs subjective tone (0 to 1) without leaking label direction
-        feature_df['subjectivity'] = df[text_column].apply(
-            lambda x: TextBlob(str(x)).sentiment.subjectivity
-        )
+        if TextBlob is not None:
+            feature_df['subjectivity'] = df[text_column].apply(
+                lambda x: TextBlob(str(x)).sentiment.subjectivity
+            )
+        else:
+            feature_df['subjectivity'] = 0.5
 
         self.logger.info(f"Extracted {len(feature_df.columns)} basic features")
         return feature_df

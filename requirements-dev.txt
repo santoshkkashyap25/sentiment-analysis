@@ -4,7 +4,6 @@ kaggle
 xgboost
 imblearn
 sentence-transformers
-textblob
 matplotlib
 seaborn
 pytest
