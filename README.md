@@ -2,12 +2,25 @@
 
 > **Production-grade sentiment classification engine & real-time MLOps drift monitor powered by INT8 quantized RoBERTa with calibrated negative recall (>90%).**
 
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Render-46E3B7.svg?logo=render&logoColor=white)](https://sentipulse-q0mx.onrender.com/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![ONNX Runtime](https://img.shields.io/badge/ONNX_Runtime-INT8_Quantized-005CED.svg?logo=onnx&logoColor=white)](https://onnxruntime.ai)
 [![RoBERTa](https://img.shields.io/badge/Model-RoBERTa--base-yellow.svg)](https://huggingface.co/roberta-base)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+
+**Live Application**: [https://sentipulse-q0mx.onrender.com/](https://sentipulse-q0mx.onrender.com/)
+
+---
+
+## Live Demo
+
+The production application is deployed and accessible at:  
+**[https://sentipulse-q0mx.onrender.com/](https://sentipulse-q0mx.onrender.com/)**
+
+- **Interactive Sentiment Analyzer**: Real-time feedback classification with confidence scoring and calibrated negative recall.
+- **MLOps Telemetry & Drift Console**: Live Kolmogorov-Smirnov statistical drift detection, query telemetry, and SQLite-backed metrics.
 
 ---
 
