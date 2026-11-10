@@ -381,18 +381,21 @@ class FeedbackAnalysisAPI:
 
         except Exception as e:
             logger.error(f"Prediction error: {e}")
-            return {
-                'prediction_id': 1,
-                'sentiment': 'Unknown',
-                'confidence': 0.0,
-                'probabilities': {'Negative': 0.0, 'Neutral': 0.0, 'Positive': 0.0},
-                'processed_text': text,
-                'error': str(e)
-            }
+            raise
 
 
 api = FeedbackAnalysisAPI()
 start_time_server = datetime.now()
+
+# Attribute attachment for monkeypatching support
+app.app = app
+app.monitor = monitor
+app.api = api
+
+# Attribute attachment: Ensure attributes are accessible both on module and app instance (to support test monkeypatching)
+app.app = app
+app.monitor = monitor
+app.api = api
 
 
 @app.get("/", response_class=FileResponse)
@@ -407,9 +410,10 @@ async def serve_dashboard():
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint"""
-    is_loaded = (api.onnx_session is not None or api.transformer_model is not None or api.model is not None)
-    version = '3.0-ONNX-INT8' if api.is_onnx else ('2.0-Transformer' if api.is_transformer else '1.0-Classical')
-    model_name = 'RoBERTa INT8' if api.is_onnx else ('RoBERTa PyTorch' if api.is_transformer else 'GradientBoosting (GBDT)')
+    current_api = getattr(app, "api", api)
+    is_loaded = (getattr(current_api, "onnx_session", None) is not None or getattr(current_api, "transformer_model", None) is not None or getattr(current_api, "model", None) is not None)
+    version = '3.0-ONNX-INT8' if getattr(current_api, "is_onnx", False) else ('2.0-Transformer' if getattr(current_api, "is_transformer", False) else '1.0-Classical')
+    model_name = 'RoBERTa INT8' if getattr(current_api, "is_onnx", False) else ('RoBERTa PyTorch' if getattr(current_api, "is_transformer", False) else 'GradientBoosting (GBDT)')
     return {
         'status': 'healthy' if is_loaded else 'degraded',
         'timestamp': datetime.now().isoformat(),
@@ -426,7 +430,7 @@ async def health_check():
 
 
 @app.post("/predict", response_model=PredictResponse)
-async def predict(payload: PredictRequest):
+def predict(payload: PredictRequest):
     """Real-time single feedback sentiment prediction"""
     global request_count
 
@@ -436,15 +440,22 @@ async def predict(payload: PredictRequest):
     if not payload.text.strip():
         raise HTTPException(status_code=400, detail="Text must be a non-empty string")
 
-    t0 = time.time()
-    result = api.predict_sentiment(payload.text)
-    latency_sec = time.time() - t0
-    latency_ms = round(latency_sec * 1000, 2)
+    active_api = getattr(app, "api", api)
+    active_monitor = getattr(app, "monitor", monitor)
 
-    # Log to SQLite monitoring database
+    try:
+        t0 = time.time()
+        result = active_api.predict_sentiment(payload.text)
+        latency_sec = time.time() - t0
+        latency_ms = round(latency_sec * 1000, 2)
+    except Exception as e:
+        logger.error(f"Inference error in predict endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Log to SQLite monitoring database ONLY on successful prediction
     try:
         prediction_int = result.get('prediction_id', 1)
-        monitor.log_prediction(
+        active_monitor.log_prediction(
             input_text=payload.text[:500],
             prediction=prediction_int,
             confidence=result.get('confidence', 0.0),
@@ -454,7 +465,7 @@ async def predict(payload: PredictRequest):
         logger.warning(f"Could not log prediction to monitoring DB: {e}")
 
     result['timestamp'] = datetime.now().isoformat()
-    result['model_version'] = '3.0-ONNX-INT8' if api.is_onnx else ('2.0-Transformer' if api.is_transformer else '1.0')
+    result['model_version'] = '3.0-ONNX-INT8' if getattr(active_api, 'is_onnx', False) else ('2.0-Transformer' if getattr(active_api, 'is_transformer', False) else '1.0')
     result['response_time_ms'] = latency_ms
 
     return result
@@ -463,8 +474,9 @@ async def predict(payload: PredictRequest):
 @app.get("/stats", response_model=StatsResponse)
 async def get_stats():
     """Get API statistics"""
-    model_type = 'ONNX-INT8-Quantized' if api.is_onnx else ('PyTorch-Transformer' if api.is_transformer else (type(api.model).__name__ if api.model else 'None'))
-    version = '3.0-ONNX-INT8' if api.is_onnx else ('2.0-Transformer' if api.is_transformer else '1.0-Classical')
+    current_api = getattr(app, "api", api)
+    model_type = 'ONNX-INT8-Quantized' if getattr(current_api, 'is_onnx', False) else ('PyTorch-Transformer' if getattr(current_api, 'is_transformer', False) else (type(getattr(current_api, 'model', None)).__name__ if getattr(current_api, 'model', None) else 'None'))
+    version = '3.0-ONNX-INT8' if getattr(current_api, 'is_onnx', False) else ('2.0-Transformer' if getattr(current_api, 'is_transformer', False) else '1.0-Classical')
     return {
         'total_requests': request_count,
         'uptime': str(datetime.now() - start_time_server),
@@ -492,67 +504,69 @@ async def get_telemetry():
         }
 
     try:
-        conn = sqlite3.connect(str(db_path))
+        conn = sqlite3.connect(str(db_path), timeout=30.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
         conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+        try:
+            cursor = conn.cursor()
 
-        # Query recent predictions
-        cursor.execute('''
-            SELECT id, timestamp, input_text, prediction, confidence, response_time
-            FROM predictions
-            ORDER BY id DESC LIMIT 20
-        ''')
-        rows = cursor.fetchall()
+            # Query recent predictions
+            cursor.execute('''
+                SELECT id, timestamp, input_text, prediction, confidence, response_time
+                FROM predictions
+                ORDER BY id DESC LIMIT 20
+            ''')
+            rows = cursor.fetchall()
 
-        sentiment_labels = {0: "Negative", 1: "Neutral", 2: "Positive"}
-        recent = []
-        latencies = []
-        counts = {"Negative": 0, "Neutral": 0, "Positive": 0}
+            sentiment_labels = {0: "Negative", 1: "Neutral", 2: "Positive"}
+            recent = []
+            latencies = []
+            counts = {"Negative": 0, "Neutral": 0, "Positive": 0}
 
-        for r in rows:
-            lbl = sentiment_labels.get(r["prediction"], "Neutral")
-            counts[lbl] = counts.get(lbl, 0) + 1
-            lat = round(float(r["response_time"] or 0) * 1000, 2)
-            latencies.append(lat)
-            recent.append({
-                "id": r["id"],
-                "timestamp": str(r["timestamp"]),
-                "text": r["input_text"],
-                "sentiment": lbl,
-                "confidence": round(float(r["confidence"] or 0), 4),
-                "latency_ms": lat
-            })
+            for r in rows:
+                lbl = sentiment_labels.get(r["prediction"], "Neutral")
+                counts[lbl] = counts.get(lbl, 0) + 1
+                lat = round(float(r["response_time"] or 0) * 1000, 2)
+                latencies.append(lat)
+                recent.append({
+                    "id": r["id"],
+                    "timestamp": str(r["timestamp"]),
+                    "text": r["input_text"],
+                    "sentiment": lbl,
+                    "confidence": round(float(r["confidence"] or 0), 4),
+                    "latency_ms": lat
+                })
 
-        # Overall count and latencies
-        cursor.execute("SELECT COUNT(*), AVG(response_time) FROM predictions")
-        tot_count, avg_resp = cursor.fetchone()
-        avg_latency_ms = round((avg_resp or 0) * 1000, 2)
+            # Overall count and latencies
+            cursor.execute("SELECT COUNT(*), AVG(response_time) FROM predictions")
+            tot_count, avg_resp = cursor.fetchone()
+            avg_latency_ms = round((avg_resp or 0) * 1000, 2)
 
-        # Percentiles
-        cursor.execute("SELECT response_time FROM predictions WHERE response_time IS NOT NULL ORDER BY response_time")
-        all_lats = [float(row[0]) * 1000 for row in cursor.fetchall()]
-        p50 = round(float(np.percentile(all_lats, 50)), 2) if all_lats else 0.0
-        p95 = round(float(np.percentile(all_lats, 95)), 2) if all_lats else 0.0
+            # Percentiles
+            cursor.execute("SELECT response_time FROM predictions WHERE response_time IS NOT NULL ORDER BY response_time")
+            all_lats = [float(row[0]) * 1000 for row in cursor.fetchall()]
+            p50 = round(float(np.percentile(all_lats, 50)), 2) if all_lats else 0.0
+            p95 = round(float(np.percentile(all_lats, 95)), 2) if all_lats else 0.0
 
-        # Query drift alerts
-        cursor.execute('''
-            SELECT id, timestamp, drift_type, metric_value, threshold, severity
-            FROM drift_alerts
-            ORDER BY id DESC LIMIT 10
-        ''')
-        alerts = [
-            {
-                "id": a["id"],
-                "timestamp": str(a["timestamp"]),
-                "type": a["drift_type"],
-                "value": round(float(a["metric_value"]), 4),
-                "threshold": round(float(a["threshold"]), 4),
-                "severity": a["severity"]
-            }
-            for a in cursor.fetchall()
-        ]
-
-        conn.close()
+            # Query drift alerts
+            cursor.execute('''
+                SELECT id, timestamp, drift_type, metric_value, threshold, severity
+                FROM drift_alerts
+                ORDER BY id DESC LIMIT 10
+            ''')
+            alerts = [
+                {
+                    "id": a["id"],
+                    "timestamp": str(a["timestamp"]),
+                    "type": a["drift_type"],
+                    "value": round(float(a["metric_value"]), 4),
+                    "threshold": round(float(a["threshold"]), 4),
+                    "severity": a["severity"]
+                }
+                for a in cursor.fetchall()
+            ]
+        finally:
+            conn.close()
 
         return {
             "total_predictions": tot_count or len(recent),
@@ -569,9 +583,12 @@ async def get_telemetry():
 
 
 @app.post("/api/simulate-drift")
-async def simulate_drift():
+def simulate_drift():
     """Simulate out-of-distribution drift traffic to test the MLOps detector"""
     try:
+        current_api = getattr(app, "api", api)
+        current_monitor = getattr(app, "monitor", monitor)
+
         # Generate synthetic out-of-distribution reviews (anomalous machine crash telemetry / foreign text)
         ood_samples = [
             "FATAL ERR: 0x8849F buffer overflow at segment 12 offset 992",
@@ -587,14 +604,14 @@ async def simulate_drift():
         ] * 4
 
         # Extract features for OOD samples
-        if api.feature_engineer is None:
-            api.load_model_and_extractors()
+        if current_api.feature_engineer is None:
+            current_api.load_model_and_extractors()
 
-        ood_clean = [api.preprocess_text(s) for s in ood_samples]
+        ood_clean = [current_api.preprocess_text(s) for s in ood_samples]
         df_ood = pd.DataFrame({'reviewText_clean': ood_clean})
-        basic_ood = api.feature_engineer.extract_basic_features(df_ood, 'reviewText_clean')
-        tfidf_ood = api.feature_engineer.extract_tfidf_features(ood_clean, is_training=False)
-        ood_features = api.feature_engineer.combine_features(basic_ood, tfidf_ood)
+        basic_ood = current_api.feature_engineer.extract_basic_features(df_ood, 'reviewText_clean')
+        tfidf_ood = current_api.feature_engineer.extract_tfidf_features(ood_clean, is_training=False)
+        ood_features = current_api.feature_engineer.combine_features(basic_ood, tfidf_ood)
 
         # Load reference baseline features
         ref_path = BASE_DIR / "data" / "processed" / "features_reference.pkl"
@@ -605,12 +622,12 @@ async def simulate_drift():
             # Fallback baseline
             ref_clean = ["great product high quality fast shipping wonderful experience love it"] * 40
             df_ref = pd.DataFrame({'reviewText_clean': ref_clean})
-            basic_ref = api.feature_engineer.extract_basic_features(df_ref, 'reviewText_clean')
-            tfidf_ref = api.feature_engineer.extract_tfidf_features(ref_clean, is_training=False)
-            ref_features = api.feature_engineer.combine_features(basic_ref, tfidf_ref)
+            basic_ref = current_api.feature_engineer.extract_basic_features(df_ref, 'reviewText_clean')
+            tfidf_ref = current_api.feature_engineer.extract_tfidf_features(ref_clean, is_training=False)
+            ref_features = current_api.feature_engineer.combine_features(basic_ref, tfidf_ref)
 
         # Run statistical drift detection
-        drift_result = monitor.detect_data_drift(ref_features, ood_features, threshold=0.05)
+        drift_result = current_monitor.detect_data_drift(ref_features, ood_features, threshold=0.05)
 
         return {
             "status": "simulation_complete",
@@ -626,10 +643,12 @@ async def simulate_drift():
 
 
 @app.post("/api/check-drift")
-async def check_live_drift():
+def check_live_drift():
     """Evaluate statistical feature drift on actual live customer feedback queries logged in SQLite."""
     try:
-        db_path = BASE_DIR / "monitoring.db"
+        current_api = getattr(app, "api", api)
+        current_monitor = getattr(app, "monitor", monitor)
+        db_path = Path(getattr(current_monitor, "db_path", BASE_DIR / "monitoring.db"))
         if not db_path.exists():
             return {
                 "status": "insufficient_data",
@@ -638,11 +657,14 @@ async def check_live_drift():
                 "drift_detected": False
             }
 
-        conn = sqlite3.connect(str(db_path))
-        cursor = conn.cursor()
-        cursor.execute("SELECT input_text FROM predictions ORDER BY id DESC LIMIT 50")
-        rows = cursor.fetchall()
-        conn.close()
+        conn = sqlite3.connect(str(db_path), timeout=30.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT input_text FROM predictions ORDER BY id DESC LIMIT 50")
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
 
         texts = [r[0] for r in rows if r[0] and len(r[0].strip()) > 0]
         if len(texts) < 5:
@@ -653,14 +675,14 @@ async def check_live_drift():
                 "drift_detected": False
             }
 
-        if api.feature_engineer is None:
-            api.load_model_and_extractors()
+        if current_api.feature_engineer is None:
+            current_api.load_model_and_extractors()
 
-        clean_texts = [api.preprocess_text(t) for t in texts]
+        clean_texts = [current_api.preprocess_text(t) for t in texts]
         df_live = pd.DataFrame({'reviewText_clean': clean_texts})
-        basic_feats = api.feature_engineer.extract_basic_features(df_live, 'reviewText_clean')
-        tfidf_feats = api.feature_engineer.extract_tfidf_features(clean_texts, is_training=False)
-        live_features = api.feature_engineer.combine_features(basic_feats, tfidf_feats)
+        basic_feats = current_api.feature_engineer.extract_basic_features(df_live, 'reviewText_clean')
+        tfidf_feats = current_api.feature_engineer.extract_tfidf_features(clean_texts, is_training=False)
+        live_features = current_api.feature_engineer.combine_features(basic_feats, tfidf_feats)
 
         ref_path = BASE_DIR / "data" / "processed" / "features_reference.pkl"
         if ref_path.exists():
@@ -669,11 +691,11 @@ async def check_live_drift():
         else:
             ref_clean = ["great product high quality fast shipping wonderful experience love it"] * 40
             df_ref = pd.DataFrame({'reviewText_clean': ref_clean})
-            basic_ref = api.feature_engineer.extract_basic_features(df_ref, 'reviewText_clean')
-            tfidf_ref = api.feature_engineer.extract_tfidf_features(ref_clean, is_training=False)
-            ref_features = api.feature_engineer.combine_features(basic_ref, tfidf_ref)
+            basic_ref = current_api.feature_engineer.extract_basic_features(df_ref, 'reviewText_clean')
+            tfidf_ref = current_api.feature_engineer.extract_tfidf_features(ref_clean, is_training=False)
+            ref_features = current_api.feature_engineer.combine_features(basic_ref, tfidf_ref)
 
-        drift_result = monitor.detect_data_drift(ref_features, live_features, threshold=0.05)
+        drift_result = current_monitor.detect_data_drift(ref_features, live_features, threshold=0.05)
 
         return {
             "status": "success",

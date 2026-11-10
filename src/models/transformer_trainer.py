@@ -130,13 +130,34 @@ class TransformerTrainer:
         else:
             clean_df["fused_text"] = clean_df[text_col]
 
-        # Map sentiment strings to {0: Negative, 1: Neutral, 2: Positive}
-        label_map = {"Negative": 0, "Neutral": 1, "Positive": 2}
-        first_val = str(clean_df[label_col].iloc[0]).strip()
-        if first_val in label_map or not first_val.isdigit():
-            clean_df["label"] = clean_df[label_col].astype(str).str.strip().map(label_map)
+        # Reset index upfront only if not already unique to preserve caller indices
+        if not clean_df.index.is_unique:
+            clean_df = clean_df.reset_index(drop=True)
+
+        # Map sentiment strings or 1-5 star ratings to {0: Negative, 1: Neutral, 2: Positive}
+        str_sentiment_map = {"negative": 0, "neutral": 1, "positive": 2}
+        rating_star_map = {
+            1: 0, 2: 0, 3: 1, 4: 2, 5: 2,
+            1.0: 0, 2.0: 0, 3.0: 1, 4.0: 2, 5.0: 2,
+        }
+
+        # Check if labels are already numeric classes {0, 1, 2}
+        numeric_vals = pd.to_numeric(clean_df[label_col], errors="coerce")
+        unique_nums = set(numeric_vals.dropna().unique())
+
+        if 0 in unique_nums and unique_nums.issubset({0, 1, 2}):
+            clean_df["label"] = numeric_vals
         else:
-            clean_df["label"] = clean_df[label_col].astype(int)
+            # Map string sentiments ("Negative", "Neutral", "Positive", case-insensitive)
+            str_series = clean_df[label_col].astype(str).str.strip().str.lower()
+            mapped = str_series.map(str_sentiment_map)
+
+            # For unmapped rows, map 1-5 star ratings (int, float, str)
+            unmapped = mapped.isna()
+            if unmapped.any():
+                mapped.loc[unmapped] = numeric_vals.loc[unmapped].map(rating_star_map)
+
+            clean_df["label"] = mapped
 
         clean_df = clean_df.dropna(subset=["label"])
         clean_df["label"] = clean_df["label"].astype(int)
@@ -151,23 +172,35 @@ class TransformerTrainer:
                 n_take = min(len(cls_df), samples_per_class)
                 sampled_dfs.append(cls_df.sample(n_take, random_state=random_state))
 
-            sub_df = pd.concat(sampled_dfs, ignore_index=True)
+            # Preserve original indices so clean_df.drop accurately excludes sampled rows
+            sub_df = pd.concat(sampled_dfs)
             if len(sub_df) < sample_size:
                 rem_needed = sample_size - len(sub_df)
                 remaining_clean = clean_df.drop(index=sub_df.index, errors="ignore")
                 if len(remaining_clean) > 0:
                     fill = remaining_clean.sample(min(rem_needed, len(remaining_clean)), random_state=random_state)
-                    sub_df = pd.concat([sub_df, fill], ignore_index=True)
+                    sub_df = pd.concat([sub_df, fill])
             clean_df = sub_df
 
         logger.info(f"Dataset ready: {len(clean_df)} reviews. Class distribution:\n{clean_df['label'].value_counts().to_dict()}")
 
-        # Stratified 80 / 10 / 10 Split
+        # Stratified 80 / 10 / 10 Split (falls back to random split if any class has < 2 members)
+        label_counts = clean_df["label"].value_counts()
+        can_stratify_first = len(label_counts) > 1 and label_counts.min() >= 2
         train_df, temp_df = train_test_split(
-            clean_df, test_size=0.20, stratify=clean_df["label"], random_state=random_state
+            clean_df,
+            test_size=0.20,
+            stratify=clean_df["label"] if can_stratify_first else None,
+            random_state=random_state
         )
+
+        temp_counts = temp_df["label"].value_counts()
+        can_stratify_second = len(temp_counts) > 1 and temp_counts.min() >= 2
         val_df, test_df = train_test_split(
-            temp_df, test_size=0.50, stratify=temp_df["label"], random_state=random_state
+            temp_df,
+            test_size=0.50,
+            stratify=temp_df["label"] if can_stratify_second else None,
+            random_state=random_state
         )
 
         logger.info(f"Split sizes: Train={len(train_df)}, Val={len(val_df)}, Test={len(test_df)}")

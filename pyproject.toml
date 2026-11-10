@@ -26,6 +26,11 @@ dependencies = [
     "tqdm",
     "joblib",
     "requests",
+    "onnx",
+    "tokenizers",
+    "onnxruntime",
+    "transformers",
+    "torch",
 ]
 
 [project.optional-dependencies]

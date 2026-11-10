@@ -11,3 +11,5 @@ pytest-cov
 tqdm
 joblib
 transformers>=4.35.0
+onnx>=1.14.0
+

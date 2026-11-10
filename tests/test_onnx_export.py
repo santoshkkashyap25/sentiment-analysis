@@ -30,6 +30,8 @@ def test_onnx_exporter_init(transformer_model_dir):
 
 def test_onnx_export_and_quantize(transformer_model_dir, tmp_path):
     """Test end-to-end ONNX export and INT8 dynamic quantization."""
+    pytest.importorskip("onnx")
+    pytest.importorskip("onnxruntime")
     model_dir = Path(transformer_model_dir)
     if not (model_dir / "model.safetensors").exists() and not (model_dir / "pytorch_model.bin").exists():
         pytest.skip("PyTorch model weights (model.safetensors) not committed to git repository")

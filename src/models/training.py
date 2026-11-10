@@ -6,7 +6,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import GridSearchCV, cross_val_score
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, f1_score
 try:
     from xgboost import XGBClassifier
 except ImportError:
@@ -78,6 +78,7 @@ class ModelTrainer:
             )
             grid_search.fit(X_train, y_train)
             self.logger.info(f"Best parameters: {grid_search.best_params_}")
+            self.logger.info(f"GridSearch CV F1 Score: {grid_search.best_score_:.4f}")
             return grid_search.best_estimator_
         else:
             model.fit(X_train, y_train)
@@ -96,23 +97,27 @@ class ModelTrainer:
             trained_model = self.train_single_model(model, X_train, y_train, param_grid)
             trained_models[name] = trained_model
 
-            cv_scores = cross_val_score(trained_model, X_train, y_train,
-                                      cv=5, scoring='f1_weighted')
-            self.logger.info(f"{name} CV F1 Score: {cv_scores.mean():.4f} (+/- {cv_scores.std() * 2:.4f})")
+            if not param_grid:
+                cv_scores = cross_val_score(trained_model, X_train, y_train,
+                                          cv=5, scoring='f1_weighted')
+                self.logger.info(f"{name} CV F1 Score: {cv_scores.mean():.4f} (+/- {cv_scores.std() * 2:.4f})")
 
         self.models = trained_models
         return trained_models
 
     def select_best_model(self, X_val: np.ndarray, y_val: np.ndarray) -> Tuple[str, Any]:
         """Select best model based on validation performance"""
-        best_score = 0
+        if not self.models:
+            raise ValueError("No models available to select from. Train models or set trainer.models first.")
+
+        best_score = -1.0
         best_model_name = None
 
         performance_results = {}
 
         for name, model in self.models.items():
             y_pred = model.predict(X_val)
-            score = accuracy_score(y_val, y_pred)
+            score = f1_score(y_val, y_pred, average='weighted', zero_division=0)
             performance_results[name] = score
 
             if score > best_score:

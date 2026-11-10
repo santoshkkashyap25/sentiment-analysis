@@ -19,22 +19,37 @@ import logging
 import warnings
 warnings.filterwarnings("ignore")
 
+NEGATION_WORDS = {'not', 'no', 'nor', 'neither', 'never', 'barely', 'hardly', 'scarcely'}
+
+
 class DataPreprocessor:
     """Handles data cleaning and preprocessing"""
+
+    NEGATION_WORDS = NEGATION_WORDS
 
     def __init__(self, config: Dict):
         self.config = config
         self.logger = logging.getLogger(__name__)
+        self.NEGATION_WORDS = NEGATION_WORDS
 
-        # Ensure essential NLTK resources are available
-        for res in ['punkt', 'punkt_tab', 'stopwords', 'wordnet']:
+        # Ensure essential NLTK resources are available with nltk.data.find guard
+        nltk_resources = {
+            'punkt': 'tokenizers/punkt',
+            'punkt_tab': 'tokenizers/punkt_tab',
+            'stopwords': 'corpora/stopwords',
+            'wordnet': 'corpora/wordnet',
+        }
+        for res_name, res_path in nltk_resources.items():
             try:
-                nltk.download(res, quiet=True)
-            except Exception:
-                pass
+                nltk.data.find(res_path)
+            except (LookupError, IndexError):
+                try:
+                    nltk.download(res_name, quiet=True)
+                except Exception:
+                    pass
 
         try:
-            self.stop_words = set(stopwords.words('english'))
+            self.stop_words = set(stopwords.words('english')) - self.NEGATION_WORDS
         except Exception:
             self.stop_words = set()
         try:
@@ -78,7 +93,7 @@ class DataPreprocessor:
         except Exception:
             tokens = text.split()
 
-        tokens = [token for token in tokens if token not in self.stop_words]
+        tokens = [token for token in tokens if token not in self.stop_words or token in self.NEGATION_WORDS]
         if self.lemmatizer:
             tokens = [self.lemmatizer.lemmatize(token) for token in tokens]
 

@@ -23,56 +23,84 @@ class ModelEvaluator:
         """Calculate basic classification metrics"""
         metrics = {
             'accuracy': accuracy_score(y_true, y_pred),
-            'precision': precision_score(y_true, y_pred, average=average),
-            'recall': recall_score(y_true, y_pred, average=average),
-            'f1': f1_score(y_true, y_pred, average=average)
+            'precision': precision_score(y_true, y_pred, average=average, zero_division=0),
+            'recall': recall_score(y_true, y_pred, average=average, zero_division=0),
+            'f1': f1_score(y_true, y_pred, average=average, zero_division=0)
         }
 
         return metrics
 
     def generate_classification_report(self, y_true: np.ndarray, y_pred: np.ndarray,
-                                     target_names: list = None) -> str:
+                                      target_names: list = None,
+                                      labels: list = None) -> str:
         """Generate detailed classification report"""
-        if target_names is None:
+        if labels is not None and target_names is None:
+            target_names = [f"Class_{lbl}" for lbl in labels]
+        elif target_names is None:
             target_names = ['Negative', 'Neutral', 'Positive']
+        if labels is None:
+            labels = [0, 1, 2] if len(target_names) == 3 else list(range(len(target_names)))
 
-        report = classification_report(y_true, y_pred, target_names=target_names)
+        report = classification_report(
+            y_true, y_pred, labels=labels, target_names=target_names, zero_division=0
+        )
         return report
 
     def plot_confusion_matrix(self, y_true: np.ndarray, y_pred: np.ndarray,
-                            target_names: list = None, figsize: Tuple = (8, 6)):
-        """Plot confusion matrix"""
+                            target_names: list = None, figsize: Tuple = (8, 6),
+                            save_path: str = None, labels: list = None):
+        """Plot confusion matrix and optionally save to file without blocking"""
+        if labels is not None and target_names is None:
+            target_names = [f"Class_{lbl}" for lbl in labels]
+        elif target_names is None:
+            target_names = ['Negative', 'Neutral', 'Positive']
+        if labels is None:
+            labels = [0, 1, 2] if len(target_names) == 3 else list(range(len(target_names)))
+
         try:
+            import matplotlib
+            matplotlib.use('Agg')
             import matplotlib.pyplot as plt
             import seaborn as sns
         except ImportError:
             self.logger.warning("matplotlib and seaborn are required to plot confusion matrix")
-            return confusion_matrix(y_true, y_pred)
+            return confusion_matrix(y_true, y_pred, labels=labels)
 
-        if target_names is None:
-            target_names = ['Negative', 'Neutral', 'Positive']
+        cm = confusion_matrix(y_true, y_pred, labels=labels)
 
-        cm = confusion_matrix(y_true, y_pred)
-
-        plt.figure(figsize=figsize)
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                   xticklabels=target_names, yticklabels=target_names)
-        plt.title('Confusion Matrix')
-        plt.xlabel('Predicted')
-        plt.ylabel('Actual')
-        plt.show()
+        try:
+            plt.figure(figsize=figsize)
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                       xticklabels=target_names, yticklabels=target_names)
+            plt.title('Confusion Matrix')
+            plt.xlabel('Predicted')
+            plt.ylabel('Actual')
+            if save_path:
+                import os
+                parent_dir = os.path.dirname(os.path.abspath(save_path))
+                if parent_dir:
+                    os.makedirs(parent_dir, exist_ok=True)
+                plt.savefig(save_path, bbox_inches='tight', dpi=300)
+                self.logger.info(f"Confusion matrix plot saved to {save_path}")
+        finally:
+            plt.close()
 
         return cm
 
     def calculate_per_class_metrics(self, y_true: np.ndarray, y_pred: np.ndarray,
-                                  target_names: list = None) -> pd.DataFrame:
+                                  target_names: list = None,
+                                  labels: list = None) -> pd.DataFrame:
         """Calculate per-class metrics"""
-        if target_names is None:
+        if labels is not None and target_names is None:
+            target_names = [f"Class_{lbl}" for lbl in labels]
+        elif target_names is None:
             target_names = ['Negative', 'Neutral', 'Positive']
+        if labels is None:
+            labels = [0, 1, 2] if len(target_names) == 3 else list(range(len(target_names)))
 
-        precision = precision_score(y_true, y_pred, average=None)
-        recall = recall_score(y_true, y_pred, average=None)
-        f1 = f1_score(y_true, y_pred, average=None)
+        precision = precision_score(y_true, y_pred, labels=labels, average=None, zero_division=0)
+        recall = recall_score(y_true, y_pred, labels=labels, average=None, zero_division=0)
+        f1 = f1_score(y_true, y_pred, labels=labels, average=None, zero_division=0)
 
         metrics_df = pd.DataFrame({
             'Class': target_names,
@@ -94,10 +122,14 @@ class ModelEvaluator:
         except AttributeError:
             self.logger.warning("Model does not support probability predictions")
 
+        if target_names is None:
+            target_names = ['Negative', 'Neutral', 'Positive']
+        labels = [0, 1, 2] if len(target_names) == 3 else list(range(len(target_names)))
+
         basic_metrics = self.calculate_basic_metrics(y_test, y_pred)
-        report = self.generate_classification_report(y_test, y_pred, target_names)
-        cm = confusion_matrix(y_test, y_pred)
-        per_class_metrics = self.calculate_per_class_metrics(y_test, y_pred, target_names)
+        report = self.generate_classification_report(y_test, y_pred, target_names, labels=labels)
+        cm = confusion_matrix(y_test, y_pred, labels=labels)
+        per_class_metrics = self.calculate_per_class_metrics(y_test, y_pred, target_names, labels=labels)
 
         results = {
             'basic_metrics': basic_metrics,

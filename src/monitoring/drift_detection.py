@@ -21,59 +21,69 @@ class ModelMonitor:
         self.db_path = db_path
         self.setup_database()
 
+    def _get_connection(self) -> sqlite3.Connection:
+        """Create a SQLite connection with 30s timeout and WAL journal mode enabled."""
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        return conn
+
     def setup_database(self):
         """Setup monitoring database"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
 
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS predictions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp DATETIME,
-                input_text TEXT,
-                prediction INTEGER,
-                confidence REAL,
-                response_time REAL
-            )
-        ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS predictions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp DATETIME,
+                    input_text TEXT,
+                    prediction INTEGER,
+                    confidence REAL,
+                    response_time REAL
+                )
+            ''')
 
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS performance_metrics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp DATETIME,
-                accuracy REAL,
-                f1_score REAL,
-                sample_size INTEGER
-            )
-        ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS performance_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp DATETIME,
+                    accuracy REAL,
+                    f1_score REAL,
+                    sample_size INTEGER
+                )
+            ''')
 
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS drift_alerts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp DATETIME,
-                drift_type TEXT,
-                metric_value REAL,
-                threshold REAL,
-                severity TEXT
-            )
-        ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS drift_alerts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp DATETIME,
+                    drift_type TEXT,
+                    metric_value REAL,
+                    threshold REAL,
+                    severity TEXT
+                )
+            ''')
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
 
     def log_prediction(self, input_text: str, prediction: int,
                       confidence: float, response_time: float):
         """Log prediction for monitoring"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
 
-        cursor.execute('''
-            INSERT INTO predictions (timestamp, input_text, prediction, confidence, response_time)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (datetime.now(), input_text, prediction, confidence, response_time))
+            cursor.execute('''
+                INSERT INTO predictions (timestamp, input_text, prediction, confidence, response_time)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (datetime.now(), input_text, prediction, confidence, response_time))
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
 
     def detect_data_drift(self, reference_features: np.ndarray,
                           current_features: np.ndarray,
@@ -182,58 +192,62 @@ class ModelMonitor:
 
     def log_performance_metrics(self, accuracy: float, f1: float, sample_size: int):
         """Log performance metrics"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
 
-        cursor.execute('''
-            INSERT INTO performance_metrics (timestamp, accuracy, f1_score, sample_size)
-            VALUES (?, ?, ?, ?)
-        ''', (datetime.now(), accuracy, f1, sample_size))
+            cursor.execute('''
+                INSERT INTO performance_metrics (timestamp, accuracy, f1_score, sample_size)
+                VALUES (?, ?, ?, ?)
+            ''', (datetime.now(), accuracy, f1, sample_size))
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
 
     def log_drift_alert(self, drift_type: str, metric_value: float,
                        threshold: float, severity: str):
         """Log drift alert"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
 
-        cursor.execute('''
-            INSERT INTO drift_alerts (timestamp, drift_type, metric_value, threshold, severity)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (datetime.now(), drift_type, metric_value, threshold, severity))
+            cursor.execute('''
+                INSERT INTO drift_alerts (timestamp, drift_type, metric_value, threshold, severity)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (datetime.now(), drift_type, metric_value, threshold, severity))
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
 
         self.logger.warning(f"Drift alert: {drift_type} - Value: {metric_value}, "
                           f"Threshold: {threshold}, Severity: {severity}")
 
     def get_monitoring_dashboard_data(self, days: int = 7) -> Dict[str, Any]:
         """Get data for monitoring dashboard"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
+        try:
+            performance_df = pd.read_sql_query(f'''
+                SELECT * FROM performance_metrics
+                WHERE timestamp >= datetime('now', '-{days} days')
+                ORDER BY timestamp DESC
+            ''', conn)
 
-        performance_df = pd.read_sql_query(f'''
-            SELECT * FROM performance_metrics
-            WHERE timestamp >= datetime('now', '-{days} days')
-            ORDER BY timestamp DESC
-        ''', conn)
+            predictions_df = pd.read_sql_query(f'''
+                SELECT * FROM predictions
+                WHERE timestamp >= datetime('now', '-{days} days')
+                ORDER BY timestamp DESC
+                LIMIT 1000
+            ''', conn)
 
-        predictions_df = pd.read_sql_query(f'''
-            SELECT * FROM predictions
-            WHERE timestamp >= datetime('now', '-{days} days')
-            ORDER BY timestamp DESC
-            LIMIT 1000
-        ''', conn)
-
-        alerts_df = pd.read_sql_query(f'''
-            SELECT * FROM drift_alerts
-            WHERE timestamp >= datetime('now', '-{days} days')
-            ORDER BY timestamp DESC
-        ''', conn)
-
-        conn.close()
+            alerts_df = pd.read_sql_query(f'''
+                SELECT * FROM drift_alerts
+                WHERE timestamp >= datetime('now', '-{days} days')
+                ORDER BY timestamp DESC
+            ''', conn)
+        finally:
+            conn.close()
 
         if not predictions_df.empty:
             avg_response_time = predictions_df['response_time'].mean()
@@ -258,6 +272,10 @@ class ModelMonitor:
         }
 
         return dashboard_data
+
+    def get_recent_metrics(self, days: int = 7) -> Dict[str, Any]:
+        """Get recent metrics / monitoring dashboard data."""
+        return self.get_monitoring_dashboard_data(days=days)
 
 
 class RetrainingStrategy:

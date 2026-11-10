@@ -3,6 +3,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import TruncatedSVD
 from scipy.sparse import hstack, csr_matrix
 try:
     from textblob import TextBlob
@@ -119,11 +120,19 @@ class FeatureEngineer:
 
     def engineer_features(self, df: pd.DataFrame, text_column: str,
                          is_training: bool = True,
-                         include_embeddings: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+                         include_embeddings: bool = False,
+                         raw_text_column: str = None) -> Tuple[np.ndarray, np.ndarray]:
         """Complete feature engineering pipeline without data leakage"""
         self.logger.info(f"Starting feature engineering (is_training={is_training})...")
 
-        feature_df = self.extract_basic_features(df, text_column)
+        # Prefer raw text column for basic stylistic features (punctuation, case, etc.)
+        basic_text_col = text_column
+        if raw_text_column and raw_text_column in df.columns:
+            basic_text_col = raw_text_column
+        elif 'reviewText' in df.columns:
+            basic_text_col = 'reviewText'
+
+        feature_df = self.extract_basic_features(df, basic_text_col)
         tfidf_features = self.extract_tfidf_features(
             df[text_column].tolist(),
             max_features=self.config.get('tfidf_max_features', 500),
