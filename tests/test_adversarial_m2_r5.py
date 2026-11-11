@@ -272,7 +272,7 @@ class TestTrainAllModelsAdversarial:
 class TestPlotConfusionMatrixAdversarial:
     """Stress tests for ModelEvaluator.plot_confusion_matrix."""
 
-    def test_plt_show_is_never_called_in_headless_environment(self):
+    def test_plt_show_is_never_called_in_headless_environment(self, tmp_path):
         """In headless/CI environment, verify plt.show() is never called under any circumstances."""
         evaluator = ModelEvaluator()
         y_true = np.array([0, 1, 2, 0, 1, 2])
@@ -283,7 +283,7 @@ class TestPlotConfusionMatrixAdversarial:
             mock_show.assert_not_called()
 
         with patch("matplotlib.pyplot.show") as mock_show:
-            evaluator.plot_confusion_matrix(y_true, y_pred, save_path="dummy.png")
+            evaluator.plot_confusion_matrix(y_true, y_pred, save_path=str(tmp_path / "dummy.png"))
             mock_show.assert_not_called()
 
     def test_deeply_nested_nonexistent_directory_creation_and_save(self, tmp_path):
