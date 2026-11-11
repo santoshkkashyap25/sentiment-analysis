@@ -134,7 +134,11 @@ class ModelTrainer:
         return best_model_name, self.best_model
 
     def save_model(self, model: Any, filepath: str):
-        """Save trained model"""
+        """Save trained model, ensuring parent directory exists"""
+        import os
+        parent = os.path.dirname(os.path.abspath(filepath))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         with open(filepath, 'wb') as f:
             pickle.dump(model, f)
         self.logger.info(f"Model saved to {filepath}")

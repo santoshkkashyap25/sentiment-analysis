@@ -102,6 +102,12 @@ class ModelEvaluator:
         recall = recall_score(y_true, y_pred, labels=labels, average=None, zero_division=0)
         f1 = f1_score(y_true, y_pred, labels=labels, average=None, zero_division=0)
 
+        # Align target_names length strictly with labels length
+        if len(target_names) > len(labels):
+            target_names = target_names[:len(labels)]
+        elif len(target_names) < len(labels):
+            target_names = list(target_names) + [f"Class_{lbl}" for lbl in labels[len(target_names):]]
+
         metrics_df = pd.DataFrame({
             'Class': target_names,
             'Precision': precision,
@@ -158,6 +164,9 @@ class ModelEvaluator:
             metrics = self.calculate_basic_metrics(y_test, y_pred)
             metrics['model'] = name
             results.append(metrics)
+
+        if not results:
+            return pd.DataFrame(columns=['model', 'accuracy', 'precision', 'recall', 'f1'])
 
         comparison_df = pd.DataFrame(results)
         comparison_df = comparison_df.sort_values('f1', ascending=False)

@@ -251,6 +251,7 @@ class FeedbackAnalysisAPI:
 
             if not clean_text.strip():
                 return {
+                    'prediction_id': 1,
                     'sentiment': 'Neutral',
                     'confidence': 0.33,
                     'probabilities': {'Negative': 0.33, 'Neutral': 0.34, 'Positive': 0.33},
@@ -452,17 +453,18 @@ def predict(payload: PredictRequest):
         logger.error(f"Inference error in predict endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-    # Log to SQLite monitoring database ONLY on successful prediction
-    try:
-        prediction_int = result.get('prediction_id', 1)
-        active_monitor.log_prediction(
-            input_text=payload.text[:500],
-            prediction=prediction_int,
-            confidence=result.get('confidence', 0.0),
-            response_time=latency_sec
-        )
-    except Exception as e:
-        logger.warning(f"Could not log prediction to monitoring DB: {e}")
+    # Log to SQLite monitoring database ONLY on successful prediction (skip empty/uncleaned errors)
+    if not result.get('error'):
+        try:
+            prediction_int = result.get('prediction_id', 1)
+            active_monitor.log_prediction(
+                input_text=payload.text[:500],
+                prediction=prediction_int,
+                confidence=result.get('confidence', 0.0),
+                response_time=latency_sec
+            )
+        except Exception as e:
+            logger.warning(f"Could not log prediction to monitoring DB: {e}")
 
     result['timestamp'] = datetime.now().isoformat()
     result['model_version'] = '3.0-ONNX-INT8' if getattr(active_api, 'is_onnx', False) else ('2.0-Transformer' if getattr(active_api, 'is_transformer', False) else '1.0')

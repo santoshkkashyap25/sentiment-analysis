@@ -17,6 +17,7 @@ from src.models.evaluation import ModelEvaluator
 from src.monitoring.drift_detection import ModelMonitor, RetrainingStrategy
 from src.config import load_config
 
+os.makedirs('logs', exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -410,11 +411,11 @@ def main():
     parser = argparse.ArgumentParser(description='Run Customer Feedback Analysis Pipeline')
     parser.add_argument('--config', type=str, default='config.json',
                        help='Configuration file path')
-    parser.add_argument('--model-type', type=str, choices=['classical', 'transformer'],
+    parser.add_argument('--model-type', '--model', dest='model_type', type=str, choices=['classical', 'transformer'],
                        default='transformer', help='Model family: classical (CPU) or transformer (GPU)')
     parser.add_argument('--model-name', type=str, default='roberta-base',
                        help='Pretrained transformer architecture (default: roberta-base)')
-    parser.add_argument('--sample-size', type=int, default=120000,
+    parser.add_argument('--sample-size', '--samples', dest='sample_size', type=int, default=120000,
                        help='Number of high-signal reviews to sample (default: 120000)')
     parser.add_argument('--full-dataset', action='store_true',
                        help='Train on full 393,000+ review dataset instead of high-signal subset')

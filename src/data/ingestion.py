@@ -83,7 +83,7 @@ class DataIngestionPipeline:
             else:
                 raise ValueError(f"Unsupported source type: {source_type}")
 
-            df['data_source'] = source['name']
+            df['data_source'] = source.get('name', 'unnamed_source')
             dataframes.append(df)
 
         if not dataframes:

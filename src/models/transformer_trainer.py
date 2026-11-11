@@ -340,11 +340,11 @@ class TransformerTrainer:
             }
             training_history.append(history_entry)
 
-            if weighted_f1 > best_val_f1:
+            if weighted_f1 > best_val_f1 or epoch == 1:
                 best_val_f1 = weighted_f1
                 best_val_metrics = history_entry
                 self.save(output_dir)
-                logger.info(f"Saved new best model checkpoint to {output_dir} (Val F1: {best_val_f1:.4f})")
+                logger.info(f"Saved model checkpoint to {output_dir} (Val F1: {best_val_f1:.4f})")
 
         # Evaluate SWA model if enabled
         if self.use_swa and swa_model is not None:
@@ -388,7 +388,9 @@ class TransformerTrainer:
         logger.info(f"GPU Training completed in {total_duration/60:.2f} minutes! Best Val F1: {best_val_f1:.4f}")
 
         # Save training report
-        report_path = Path(output_dir) / "training_report.json"
+        out_path = Path(output_dir)
+        out_path.mkdir(parents=True, exist_ok=True)
+        report_path = out_path / "training_report.json"
         report = {
             "model_name": self.model_name,
             "device": str(self.device),
@@ -414,6 +416,9 @@ class TransformerTrainer:
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Generate softmax probabilities and true labels from a DataLoader."""
         eval_model = model if model is not None else self.model
+        if eval_model is None or not data_loader:
+            return np.empty((0, self.num_labels), dtype=np.float32), np.empty((0,), dtype=np.int64)
+
         eval_model.eval()
         all_probs = []
         all_labels = []
@@ -429,6 +434,9 @@ class TransformerTrainer:
 
                 all_probs.append(probs)
                 all_labels.append(labels)
+
+        if not all_probs:
+            return np.empty((0, self.num_labels), dtype=np.float32), np.empty((0,), dtype=np.int64)
 
         return np.vstack(all_probs), np.concatenate(all_labels)
 

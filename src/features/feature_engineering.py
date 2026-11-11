@@ -30,24 +30,25 @@ class FeatureEngineer:
     def extract_basic_features(self, df: pd.DataFrame, text_column: str) -> pd.DataFrame:
         """Extract basic text features without sentiment target leakage"""
         feature_df = pd.DataFrame(index=df.index)
+        safe_text = df[text_column].astype(str)
 
-        feature_df['text_length'] = df[text_column].str.len().fillna(0)
-        feature_df['word_count'] = df[text_column].str.split().str.len().fillna(0)
-        feature_df['sentence_count'] = df[text_column].str.count(r'\.').fillna(0)
+        feature_df['text_length'] = safe_text.str.len().fillna(0)
+        feature_df['word_count'] = safe_text.str.split().str.len().fillna(0)
+        feature_df['sentence_count'] = safe_text.str.count(r'\.').fillna(0)
 
         # Avoid zero division
         safe_word_count = feature_df['word_count'].replace(0, 1)
         feature_df['avg_word_length'] = (
-            df[text_column].str.replace(' ', '').str.len().fillna(0) / safe_word_count
+            safe_text.str.replace(' ', '').str.len().fillna(0) / safe_word_count
         )
 
-        feature_df['exclamation_count'] = df[text_column].str.count('!').fillna(0)
-        feature_df['question_count'] = df[text_column].str.count(r'\?').fillna(0)
-        feature_df['uppercase_count'] = df[text_column].str.count(r'[A-Z]').fillna(0)
+        feature_df['exclamation_count'] = safe_text.str.count('!').fillna(0)
+        feature_df['question_count'] = safe_text.str.count(r'\?').fillna(0)
+        feature_df['uppercase_count'] = safe_text.str.count(r'[A-Z]').fillna(0)
 
         # Subjectivity measures factual vs subjective tone (0 to 1) without leaking label direction
         if TextBlob is not None:
-            feature_df['subjectivity'] = df[text_column].apply(
+            feature_df['subjectivity'] = safe_text.apply(
                 lambda x: TextBlob(str(x)).sentiment.subjectivity
             )
         else:
@@ -87,14 +88,17 @@ class FeatureEngineer:
 
     def reduce_dimensionality(self, features: np.ndarray,
                             n_components: int = 50, is_training: bool = True) -> np.ndarray:
-        """Reduce feature dimensionality using SVD"""
+        """Reduce feature dimensionality using SVD with 2D array validation"""
+        if hasattr(features, 'ndim') and features.ndim < 2:
+            raise ValueError(f"Expected 2D array, got {features.ndim}D array instead")
+
         if is_training or self.svd is None:
             self.svd = TruncatedSVD(n_components=n_components, random_state=42)
             reduced_features = self.svd.fit_transform(features)
         else:
             reduced_features = self.svd.transform(features)
 
-        self.logger.info(f"Reduced dimensions from {features.shape[1]} to {n_components}")
+        self.logger.info(f"Reduced dimensions from {features.shape[1]} to {reduced_features.shape[1]}")
         return reduced_features.astype(np.float32)
 
     def combine_features(self, basic_features: pd.DataFrame,

@@ -111,8 +111,12 @@ class DataPreprocessor:
         return df
 
     def create_sentiment_labels(self, df: pd.DataFrame, rating_column: str) -> pd.DataFrame:
-        """Create sentiment labels from ratings"""
+        """Create sentiment labels from ratings with safe numeric coercion"""
+        numeric_ratings = pd.to_numeric(df[rating_column], errors='coerce')
+
         def rating_to_sentiment(rating):
+            if pd.isna(rating):
+                return 'Neutral'
             if rating <= 2:
                 return 'Negative'
             elif rating >= 4:
@@ -120,14 +124,15 @@ class DataPreprocessor:
             else:
                 return 'Neutral'
 
-        df['sentiment'] = df[rating_column].apply(rating_to_sentiment)
+        df['sentiment'] = numeric_ratings.apply(rating_to_sentiment)
         return df
 
     def handle_imbalanced_data(self, X: np.ndarray, y: np.ndarray,
                               strategy: str = 'smote') -> Tuple[np.ndarray, np.ndarray]:
         """Handle imbalanced dataset using various techniques"""
 
-        self.logger.info(f"Original class distribution: {np.bincount(y)}")
+        orig_dist = pd.Series(y).value_counts().to_dict()
+        self.logger.info(f"Original class distribution: {orig_dist}")
 
         if strategy == 'smote':
             if SMOTE is None:
@@ -149,7 +154,8 @@ class DataPreprocessor:
         else:
             X_resampled, y_resampled = X, y
 
-        self.logger.info(f"Resampled class distribution: {np.bincount(y_resampled)}")
+        resampled_dist = pd.Series(y_resampled).value_counts().to_dict()
+        self.logger.info(f"Resampled class distribution: {resampled_dist}")
         return X_resampled, y_resampled
 
     def preprocess_pipeline(self, df: pd.DataFrame) -> pd.DataFrame:

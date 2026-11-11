@@ -88,7 +88,7 @@ class ModelMonitor:
     def detect_data_drift(self, reference_features: np.ndarray,
                           current_features: np.ndarray,
                           threshold: float = 0.05) -> Dict[str, Any]:
-        """Detect data drift using statistical tests"""
+        """Detect data drift using statistical tests with empty matrix safety guards"""
         drift_results = {}
 
         if hasattr(reference_features, 'toarray'):
@@ -101,7 +101,34 @@ class ModelMonitor:
         elif not isinstance(current_features, np.ndarray):
             current_features = np.asarray(current_features)
 
+        if reference_features.size == 0 or current_features.size == 0:
+            return {
+                'drift_detected_features': 0,
+                'total_features': 0,
+                'drift_percentage': 0.0,
+                'overall_drift': False,
+                'feature_results': {}
+            }
+
+        if reference_features.ndim != 2 or current_features.ndim != 2:
+            return {
+                'drift_detected_features': 0,
+                'total_features': 0,
+                'drift_percentage': 0.0,
+                'overall_drift': False,
+                'feature_results': {}
+            }
+
         min_features = min(50, reference_features.shape[1], current_features.shape[1])
+        if min_features == 0:
+            return {
+                'drift_detected_features': 0,
+                'total_features': 0,
+                'drift_percentage': 0.0,
+                'overall_drift': False,
+                'feature_results': {}
+            }
+
         reference_features = reference_features[:, :min_features]
         current_features = current_features[:, :min_features]
 
@@ -109,7 +136,9 @@ class ModelMonitor:
             ref_feature = reference_features[:, i]
             curr_feature = current_features[:, i]
 
-            if np.all(ref_feature == ref_feature[0]) and np.all(curr_feature == curr_feature[0]):
+            if len(ref_feature) == 0 or len(curr_feature) == 0:
+                ks_stat, p_value = 0.0, 1.0
+            elif np.all(ref_feature == ref_feature[0]) and np.all(curr_feature == curr_feature[0]):
                 ks_stat, p_value = 0.0, 1.0
             else:
                 ks_stat, p_value = ks_2samp(ref_feature, curr_feature)
@@ -122,7 +151,7 @@ class ModelMonitor:
 
         drift_count = sum(1 for result in drift_results.values()
                           if result['drift_detected'])
-        drift_percentage = drift_count / len(drift_results)
+        drift_percentage = drift_count / max(len(drift_results), 1)
 
         overall_result = {
             'drift_detected_features': drift_count,
@@ -140,18 +169,30 @@ class ModelMonitor:
     def detect_prediction_drift(self, reference_predictions: np.ndarray,
                                current_predictions: np.ndarray,
                                threshold: float = 0.05) -> Dict[str, Any]:
-        """Detect prediction drift using distribution comparison"""
+        """Detect prediction drift using distribution comparison with empty array safety"""
+        if len(reference_predictions) == 0 or len(current_predictions) == 0:
+            return {
+                'chi2_statistic': 0.0,
+                'p_value': 1.0,
+                'drift_detected': False,
+                'reference_distribution': np.zeros(3),
+                'current_distribution': np.zeros(3)
+            }
+
         ref_counts = np.bincount(reference_predictions, minlength=3)
         curr_counts = np.bincount(current_predictions, minlength=3)
 
-        chi2_stat, p_value = chi2_contingency([ref_counts, curr_counts])[:2]
+        if np.sum(ref_counts) == 0 or np.sum(curr_counts) == 0:
+            chi2_stat, p_value = 0.0, 1.0
+        else:
+            chi2_stat, p_value = chi2_contingency([ref_counts, curr_counts])[:2]
 
         result = {
-            'chi2_statistic': chi2_stat,
-            'p_value': p_value,
+            'chi2_statistic': float(chi2_stat),
+            'p_value': float(p_value),
             'drift_detected': p_value < threshold,
-            'reference_distribution': ref_counts / len(reference_predictions),
-            'current_distribution': curr_counts / len(current_predictions)
+            'reference_distribution': ref_counts / max(len(reference_predictions), 1),
+            'current_distribution': curr_counts / max(len(current_predictions), 1)
         }
 
         if result['drift_detected']:
@@ -225,25 +266,26 @@ class ModelMonitor:
                           f"Threshold: {threshold}, Severity: {severity}")
 
     def get_monitoring_dashboard_data(self, days: int = 7) -> Dict[str, Any]:
-        """Get data for monitoring dashboard"""
+        """Get data for monitoring dashboard with sanitized query days"""
+        safe_days = max(1, int(days))
         conn = self._get_connection()
         try:
             performance_df = pd.read_sql_query(f'''
                 SELECT * FROM performance_metrics
-                WHERE timestamp >= datetime('now', '-{days} days')
+                WHERE timestamp >= datetime('now', '-{safe_days} days')
                 ORDER BY timestamp DESC
             ''', conn)
 
             predictions_df = pd.read_sql_query(f'''
                 SELECT * FROM predictions
-                WHERE timestamp >= datetime('now', '-{days} days')
+                WHERE timestamp >= datetime('now', '-{safe_days} days')
                 ORDER BY timestamp DESC
                 LIMIT 1000
             ''', conn)
 
             alerts_df = pd.read_sql_query(f'''
                 SELECT * FROM drift_alerts
-                WHERE timestamp >= datetime('now', '-{days} days')
+                WHERE timestamp >= datetime('now', '-{safe_days} days')
                 ORDER BY timestamp DESC
             ''', conn)
         finally:

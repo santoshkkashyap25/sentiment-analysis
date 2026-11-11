@@ -99,6 +99,8 @@ class Config:
 
     def update(self, overrides: dict) -> "Config":
         for key, value in overrides.items():
+            if hasattr(self.paths, key):
+                setattr(self.paths, key, Path(value) if isinstance(value, str) else value)
             if hasattr(self.model, key):
                 setattr(self.model, key, value)
             if hasattr(self.api, key):
@@ -115,6 +117,9 @@ class Config:
             "max_features": self.model.max_features,
             "embedding_model": self.model.embedding_model,
             "resampling_strategy": self.model.resampling_strategy,
+            "svd_components": self.model.svd_components,
+            "tfidf_max_features": self.model.tfidf_max_features,
+            "max_rows": self.model.max_rows,
         }
 
     def get(self, key: str, default=None):
