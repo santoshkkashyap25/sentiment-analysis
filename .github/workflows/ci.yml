@@ -30,6 +30,7 @@ jobs:
       - name: Download NLTK corpora
         run: |
           python -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('punkt_tab', quiet=True); nltk.download('stopwords', quiet=True); nltk.download('wordnet', quiet=True)"
+          python -c "import os, zipfile, glob; zips = glob.glob(os.path.expanduser('~/nltk_data/corpora/*.zip')); [zipfile.ZipFile(z).extractall(os.path.dirname(z)) for z in zips]"
 
       - name: Run PyTest suite with coverage
         run: |

@@ -181,10 +181,10 @@ class TestAdversarialNLTKResourceGuard:
         downloaded = []
         original_find = nltk.data.find
 
-        def mock_find(res_path):
-            if res_path == target_path:
+        def mock_find(res_path, *args, **kwargs):
+            if res_path == target_path or res_path == f"{target_path}.zip":
                 raise LookupError(f"Simulated missing: {res_path}")
-            return original_find(res_path)
+            return original_find(res_path, *args, **kwargs)
 
         def mock_download(res_name, quiet=True):
             downloaded.append(res_name)
@@ -214,7 +214,7 @@ class TestAdversarialNLTKResourceGuard:
         """Simulate an offline environment where all downloads fail with network errors.
         Initialization must complete gracefully without uncaught exceptions.
         """
-        def mock_find_missing(path):
+        def mock_find_missing(path, *args, **kwargs):
             raise LookupError(f"Offline: {path} not found")
 
         def mock_download_network_error(res_name, quiet=True):
@@ -232,10 +232,10 @@ class TestAdversarialNLTKResourceGuard:
         """When punkt is missing offline, clean_text falls back gracefully to str.split()."""
         original_find = nltk.data.find
 
-        def mock_find_no_punkt(path):
+        def mock_find_no_punkt(path, *args, **kwargs):
             if 'punkt' in path:
                 raise LookupError(f"Offline: {path}")
-            return original_find(path)
+            return original_find(path, *args, **kwargs)
 
         def mock_download_fail(name, quiet=True):
             raise ConnectionError("Offline")

@@ -145,10 +145,10 @@ def test_preprocessor_nltk_downloads_called_when_resource_missing(monkeypatch):
     download_calls = []
     original_find = nltk.data.find
 
-    def mock_find(resource_path):
+    def mock_find(resource_path, *args, **kwargs):
         if 'punkt_tab' in resource_path:
             raise LookupError("Resource punkt_tab missing")
-        return original_find(resource_path)
+        return original_find(resource_path, *args, **kwargs)
 
     def spy_download(resource, *args, **kwargs):
         download_calls.append(resource)

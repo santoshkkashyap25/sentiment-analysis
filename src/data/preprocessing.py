@@ -44,9 +44,12 @@ class DataPreprocessor:
                 nltk.data.find(res_path)
             except (LookupError, IndexError):
                 try:
-                    nltk.download(res_name, quiet=True)
-                except Exception:
-                    pass
+                    nltk.data.find(f"{res_path}.zip")
+                except (LookupError, IndexError):
+                    try:
+                        nltk.download(res_name, quiet=True)
+                    except Exception:
+                        pass
 
         try:
             self.stop_words = set(stopwords.words('english')) - self.NEGATION_WORDS

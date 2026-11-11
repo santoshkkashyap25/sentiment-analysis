@@ -40,8 +40,10 @@ class DataIngestionPipeline:
             raise
 
     def load_csv_data(self, file_path: Union[str, Path]) -> pd.DataFrame:
-        """Load data from CSV file"""
+        """Load data from CSV file with cross-platform path normalization"""
         try:
+            if isinstance(file_path, str) and "\\" in file_path and os.name != "nt":
+                file_path = file_path.replace("\\", "/")
             path_obj = Path(file_path)
             df = pd.read_csv(path_obj)
             self.logger.info(f"Loaded {len(df)} records from {path_obj}")
