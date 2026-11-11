@@ -14,7 +14,7 @@ try:
 except ImportError:
     SMOTE = None
     RandomUnderSampler = None
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Optional, Union, List
 import logging
 import warnings
 warnings.filterwarnings("ignore")
@@ -60,17 +60,35 @@ class DataPreprocessor:
         except Exception:
             self.lemmatizer = None
 
-    def remove_duplicates(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _find_text_column(self, df: pd.DataFrame, explicit_column: Optional[str] = None) -> Optional[str]:
+        """Resolve the relevant text column dynamically."""
+        if explicit_column and explicit_column in df.columns:
+            return explicit_column
+        candidates = ['reviewText', 'text', 'Text', 'review', 'content', 'review_text']
+        for col in candidates:
+            if col in df.columns:
+                return col
+        return None
+
+    def remove_duplicates(self, df: pd.DataFrame, text_column: Optional[str] = None) -> pd.DataFrame:
         """Remove duplicate records"""
         initial_count = len(df)
-        df_clean = df.drop_duplicates(subset=['reviewText'], keep='first')
+        col = self._find_text_column(df, text_column)
+        if col:
+            df_clean = df.drop_duplicates(subset=[col], keep='first')
+        else:
+            df_clean = df.drop_duplicates(keep='first')
         removed_count = initial_count - len(df_clean)
         self.logger.info(f"Removed {removed_count} duplicate records")
         return df_clean
 
-    def handle_missing_values(self, df: pd.DataFrame) -> pd.DataFrame:
+    def handle_missing_values(self, df: pd.DataFrame, text_column: Optional[str] = None) -> pd.DataFrame:
         """Handle missing values in the dataset"""
-        df_clean = df.dropna(subset=['reviewText'])
+        col = self._find_text_column(df, text_column)
+        if col:
+            df_clean = df.dropna(subset=[col])
+        else:
+            df_clean = df.dropna(how='all')
 
         if 'overall' in df_clean.columns:
             df_clean = df_clean.assign(overall=df_clean['overall'].fillna(df_clean['overall'].median()))
@@ -105,6 +123,10 @@ class DataPreprocessor:
     def normalize_text(self, df: pd.DataFrame, text_column: str) -> pd.DataFrame:
         """Normalize text data"""
         self.logger.info("Starting text normalization...")
+        df = df.copy()
+        if text_column not in df.columns:
+            self.logger.warning(f"Column '{text_column}' not found in DataFrame for normalization")
+            return df
         df[f'{text_column}_clean'] = df[text_column].apply(self.clean_text)
         df = df[df[f'{text_column}_clean'].str.len() > 0]
         self.logger.info(f"Text normalization complete, {len(df)} records remaining")

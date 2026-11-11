@@ -161,11 +161,18 @@ class FeedbackAnalysisPipeline:
                 processed_data = pd.concat(sampled, ignore_index=True)
 
             # Split raw text records first to eliminate data leakage
+            min_class_count_data = processed_data['sentiment'].value_counts().min() if 'sentiment' in processed_data.columns and len(processed_data['sentiment'].value_counts()) > 0 else 0
+            stratify_test = processed_data['sentiment'] if min_class_count_data >= 2 else None
+
             df_temp, test_df = train_test_split(
-                processed_data, test_size=0.2, stratify=processed_data['sentiment'], random_state=42
+                processed_data, test_size=0.2, stratify=stratify_test, random_state=42
             )
+
+            min_class_count_temp = df_temp['sentiment'].value_counts().min() if 'sentiment' in df_temp.columns and len(df_temp['sentiment'].value_counts()) > 0 else 0
+            stratify_val = df_temp['sentiment'] if min_class_count_temp >= 2 else None
+
             train_df, val_df = train_test_split(
-                df_temp, test_size=0.25, stratify=df_temp['sentiment'], random_state=42
+                df_temp, test_size=0.25, stratify=stratify_val, random_state=42
             )
             self.logger.info(f"Dataset split: train={len(train_df)}, val={len(val_df)}, test={len(test_df)}")
 
@@ -193,6 +200,7 @@ class FeedbackAnalysisPipeline:
 
             # --- Save Reference Features for Drift Monitoring ---
             ref_path = "data/processed/features_reference.pkl"
+            os.makedirs(os.path.dirname(ref_path), exist_ok=True)
             import pickle
             with open(ref_path, "wb") as f:
                 pickle.dump(X_train[:1000], f)

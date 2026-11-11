@@ -68,12 +68,24 @@ class ModelTrainer:
 
         return param_grids
 
+    def _get_safe_cv(self, y: np.ndarray, target_cv: int = 5) -> int:
+        """Compute safe number of CV folds based on minimum class count and sample size."""
+        if len(y) < 2:
+            return 2
+        try:
+            _, counts = np.unique(y, return_counts=True)
+            min_count = int(np.min(counts)) if len(counts) > 0 else len(y)
+        except Exception:
+            min_count = len(y)
+        return min(target_cv, max(2, min_count))
+
     def train_single_model(self, model, X_train: np.ndarray, y_train: np.ndarray,
                           param_grid: Dict = None) -> Any:
         """Train a single model with optional hyperparameter tuning"""
         if param_grid:
+            safe_cv = self._get_safe_cv(y_train, 5)
             grid_search = GridSearchCV(
-                model, param_grid, cv=5,
+                model, param_grid, cv=safe_cv,
                 scoring='f1_weighted', n_jobs=-1
             )
             grid_search.fit(X_train, y_train)
@@ -98,9 +110,13 @@ class ModelTrainer:
             trained_models[name] = trained_model
 
             if not param_grid:
-                cv_scores = cross_val_score(trained_model, X_train, y_train,
-                                          cv=5, scoring='f1_weighted')
-                self.logger.info(f"{name} CV F1 Score: {cv_scores.mean():.4f} (+/- {cv_scores.std() * 2:.4f})")
+                safe_cv = self._get_safe_cv(y_train, 5)
+                try:
+                    cv_scores = cross_val_score(trained_model, X_train, y_train,
+                                              cv=safe_cv, scoring='f1_weighted')
+                    self.logger.info(f"{name} CV F1 Score: {cv_scores.mean():.4f} (+/- {cv_scores.std() * 2:.4f})")
+                except Exception as e:
+                    self.logger.warning(f"Cross-validation skipped for {name}: {e}")
 
         self.models = trained_models
         return trained_models
@@ -109,6 +125,11 @@ class ModelTrainer:
         """Select best model based on validation performance"""
         if not self.models:
             raise ValueError("No models available to select from. Train models or set trainer.models first.")
+
+        if len(y_val) == 0:
+            first_name = next(iter(self.models))
+            self.best_model = self.models[first_name]
+            return first_name, self.best_model
 
         best_score = -1.0
         best_model_name = None

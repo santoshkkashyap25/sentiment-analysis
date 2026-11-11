@@ -205,9 +205,20 @@ class ModelMonitor:
                                       baseline_accuracy: float,
                                       baseline_f1: float,
                                       threshold: float = 0.05) -> Dict[str, Any]:
-        """Monitor for performance degradation"""
+        """Monitor for performance degradation with zero-sample guard"""
+        if len(y_true) == 0:
+            return {
+                'current_accuracy': 0.0,
+                'current_f1': 0.0,
+                'baseline_accuracy': baseline_accuracy,
+                'baseline_f1': baseline_f1,
+                'accuracy_drop': 0.0,
+                'f1_drop': 0.0,
+                'performance_degraded': False
+            }
+
         current_accuracy = accuracy_score(y_true, y_pred)
-        current_f1 = f1_score(y_true, y_pred, average='weighted')
+        current_f1 = f1_score(y_true, y_pred, average='weighted', zero_division=0)
 
         accuracy_drop = baseline_accuracy - current_accuracy
         f1_drop = baseline_f1 - current_f1
@@ -353,8 +364,11 @@ class RetrainingStrategy:
 
         performance_history = dashboard_data['performance_history']
         if not performance_history:
-            should_retrain = True
-            reasons.append("No recent performance data available")
+            if drift_alerts > 0 or performance_alerts > 0:
+                should_retrain = True
+                reasons.append("No recent performance data available and drift/alerts detected")
+            else:
+                reasons.append("No recent ground-truth performance data available")
 
         result = {
             'should_retrain': should_retrain,

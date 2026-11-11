@@ -357,15 +357,20 @@ class FeedbackAnalysisAPI:
             probabilities = None
             if hasattr(self.model, "predict_proba"):
                 probs = self.model.predict_proba(features)[0]
-                prob_dict = {
-                    'Negative': round(float(probs[0]), 4),
-                    'Neutral': round(float(probs[1]), 4),
-                    'Positive': round(float(probs[2]), 4)
-                }
-                confidence = round(float(np.max(probs)), 4)
+                prob_dict = {'Negative': 0.0, 'Neutral': 0.0, 'Positive': 0.0}
+                classes = getattr(self.model, 'classes_', [0, 1, 2])
+                class_names = ['Negative', 'Neutral', 'Positive']
+                for idx, c in enumerate(classes):
+                    if idx < len(probs):
+                        c_int = int(c) if isinstance(c, (int, np.integer)) else idx
+                        if 0 <= c_int < len(class_names):
+                            prob_dict[class_names[c_int]] = round(float(probs[idx]), 4)
+                confidence = round(float(np.max(probs)), 4) if len(probs) > 0 else 0.0
             else:
                 prob_dict = {'Negative': 0.0, 'Neutral': 0.0, 'Positive': 0.0}
-                prob_dict[['Negative', 'Neutral', 'Positive'][prediction]] = 1.0
+                class_names = ['Negative', 'Neutral', 'Positive']
+                if 0 <= prediction < len(class_names):
+                    prob_dict[class_names[prediction]] = 1.0
                 confidence = 1.0
 
             sentiment_map = {0: 'Negative', 1: 'Neutral', 2: 'Positive'}

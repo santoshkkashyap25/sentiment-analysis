@@ -68,9 +68,26 @@ class FeatureEngineer:
                 max_df=0.95,
                 stop_words='english'
             )
-            tfidf_features = self.tfidf_vectorizer.fit_transform(texts)
+            try:
+                tfidf_features = self.tfidf_vectorizer.fit_transform(texts)
+            except ValueError:
+                # Fallback if texts only contain stop words or are empty
+                self.tfidf_vectorizer = TfidfVectorizer(
+                    max_features=max_features,
+                    ngram_range=(1, 2),
+                    min_df=1,
+                    stop_words=None
+                )
+                try:
+                    tfidf_features = self.tfidf_vectorizer.fit_transform(texts)
+                except ValueError:
+                    tfidf_features = csr_matrix((len(texts), max_features), dtype=np.float32)
         else:
-            tfidf_features = self.tfidf_vectorizer.transform(texts)
+            try:
+                tfidf_features = self.tfidf_vectorizer.transform(texts)
+            except ValueError:
+                n_feats = self.tfidf_vectorizer.max_features or max_features
+                tfidf_features = csr_matrix((len(texts), n_feats), dtype=np.float32)
 
         self.logger.info(f"Extracted TF-IDF features: {tfidf_features.shape}")
         return tfidf_features

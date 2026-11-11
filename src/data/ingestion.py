@@ -58,7 +58,19 @@ class DataIngestionPipeline:
             response = requests.get(api_url, headers=headers, timeout=timeout)
             response.raise_for_status()
             data = response.json()
-            df = pd.DataFrame(data)
+            if isinstance(data, list):
+                df = pd.DataFrame(data)
+            elif isinstance(data, dict):
+                candidates = [v for v in data.values() if isinstance(v, list) and len(v) > 0 and isinstance(v[0], dict)]
+                if candidates:
+                    df = pd.DataFrame(candidates[0])
+                else:
+                    try:
+                        df = pd.DataFrame(data)
+                    except ValueError:
+                        df = pd.DataFrame([data])
+            else:
+                df = pd.DataFrame([{"data": data}])
             self.logger.info(f"Fetched {len(df)} records from API")
             return df
         except Exception as e:

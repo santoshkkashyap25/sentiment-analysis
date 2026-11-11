@@ -20,7 +20,15 @@ class ModelEvaluator:
 
     def calculate_basic_metrics(self, y_true: np.ndarray, y_pred: np.ndarray,
                               average: str = 'weighted') -> Dict:
-        """Calculate basic classification metrics"""
+        """Calculate basic classification metrics with zero-sample guard"""
+        if len(y_true) == 0:
+            return {
+                'accuracy': 0.0,
+                'precision': 0.0,
+                'recall': 0.0,
+                'f1': 0.0
+            }
+
         metrics = {
             'accuracy': accuracy_score(y_true, y_pred),
             'precision': precision_score(y_true, y_pred, average=average, zero_division=0),
@@ -98,15 +106,23 @@ class ModelEvaluator:
         if labels is None:
             labels = [0, 1, 2] if len(target_names) == 3 else list(range(len(target_names)))
 
-        precision = precision_score(y_true, y_pred, labels=labels, average=None, zero_division=0)
-        recall = recall_score(y_true, y_pred, labels=labels, average=None, zero_division=0)
-        f1 = f1_score(y_true, y_pred, labels=labels, average=None, zero_division=0)
-
         # Align target_names length strictly with labels length
         if len(target_names) > len(labels):
             target_names = target_names[:len(labels)]
         elif len(target_names) < len(labels):
             target_names = list(target_names) + [f"Class_{lbl}" for lbl in labels[len(target_names):]]
+
+        if len(y_true) == 0:
+            return pd.DataFrame({
+                'Class': target_names,
+                'Precision': np.zeros(len(target_names)),
+                'Recall': np.zeros(len(target_names)),
+                'F1-Score': np.zeros(len(target_names))
+            })
+
+        precision = precision_score(y_true, y_pred, labels=labels, average=None, zero_division=0)
+        recall = recall_score(y_true, y_pred, labels=labels, average=None, zero_division=0)
+        f1 = f1_score(y_true, y_pred, labels=labels, average=None, zero_division=0)
 
         metrics_df = pd.DataFrame({
             'Class': target_names,

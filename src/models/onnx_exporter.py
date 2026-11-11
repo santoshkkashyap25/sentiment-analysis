@@ -84,6 +84,7 @@ class OnnxExporter:
             dynamic_axes["token_type_ids"] = {0: "batch_size", 1: "sequence_length"}
 
         # Perform ONNX export with external_data=False for single-file artifact
+        os.makedirs(os.path.dirname(os.path.abspath(output_onnx_path)), exist_ok=True)
         torch.onnx.export(
             self.model,
             dummy_inputs,
@@ -120,6 +121,7 @@ class OnnxExporter:
         if output_quantized_path is None:
             output_quantized_path = str(self.model_dir / "model_quantized.onnx")
 
+        os.makedirs(os.path.dirname(os.path.abspath(output_quantized_path)), exist_ok=True)
         logger.info(f"Applying INT8 dynamic quantization: {input_onnx_path} -> {output_quantized_path}")
 
         # Clear existing value_info to allow clean shape inference during Gemm-to-MatMul replacement

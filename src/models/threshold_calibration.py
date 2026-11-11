@@ -49,10 +49,26 @@ class ThresholdCalibrator:
         y_probs = np.asarray(y_probs)
         y_true = np.asarray(y_true)
 
+        if len(y_probs) == 0 or len(y_true) == 0:
+            self.baseline_metrics = {
+                "accuracy": 0.0,
+                "weighted_f1": 0.0,
+                "macro_f1": 0.0,
+                "negative_recall": 0.0,
+                "negative_precision": 0.0,
+                "negative_f1": 0.0,
+            }
+            self.calibrated_metrics = dict(self.baseline_metrics)
+            return {
+                "thresholds": self.thresholds,
+                "baseline_metrics": self.baseline_metrics,
+                "calibrated_metrics": self.calibrated_metrics,
+            }
+
         # 1. Baseline uncalibrated argmax performance
         y_pred_baseline = np.argmax(y_probs, axis=1)
         p_base, r_base, f1_base, _ = precision_recall_fscore_support(
-            y_true, y_pred_baseline, average=None, zero_division=0
+            y_true, y_pred_baseline, labels=[0, 1, 2], average=None, zero_division=0
         )
         self.baseline_metrics = {
             "accuracy": float(accuracy_score(y_true, y_pred_baseline)),
@@ -73,7 +89,7 @@ class ThresholdCalibrator:
         for tau_neg in candidate_tau_negs:
             preds = self._predict_with_thresholds(y_probs, tau_neg=tau_neg)
             p_cls, r_cls, f1_cls, _ = precision_recall_fscore_support(
-                y_true, preds, average=None, zero_division=0
+                y_true, preds, labels=[0, 1, 2], average=None, zero_division=0
             )
             neg_prec = p_cls[0]
             neg_rec = r_cls[0]
@@ -94,7 +110,7 @@ class ThresholdCalibrator:
 
         # 3. Calculate calibrated metrics
         p_cal, r_cal, f1_cal, _ = precision_recall_fscore_support(
-            y_true, best_preds, average=None, zero_division=0
+            y_true, best_preds, labels=[0, 1, 2], average=None, zero_division=0
         )
         self.calibrated_metrics = {
             "accuracy": float(accuracy_score(y_true, best_preds)),
