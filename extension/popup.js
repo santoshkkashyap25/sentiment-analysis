@@ -79,7 +79,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 1. Analyze single review
   btnAnalyze.addEventListener("click", async () => {
-    const text = feedbackInput.value.trim();
+    const text = feedbackInput.value.trim().slice(0, 5000);
     if (!text) return;
 
     btnAnalyze.disabled = true;
@@ -173,7 +173,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const res = await fetch(`${apiUrl}/predict`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ text: reviewText }),
+              body: JSON.stringify({ text: reviewText.slice(0, 5000) }),
             });
             if (res.ok) {
               const data = await res.json();

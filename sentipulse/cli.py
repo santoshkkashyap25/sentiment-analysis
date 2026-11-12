@@ -21,10 +21,15 @@ def cmd_analyze(args):
     confidence = result.get("confidence", 0.0)
     escalate = result.get("escalation_recommended", False)
     latency = result.get("response_time_ms", 0.0)
+    word_count = result.get("word_count")
+    truncated = result.get("truncated", False)
 
     print("\n--- SentiPulse Analysis ---")
     print(f"Sentiment:   {sentiment}")
     print(f"Confidence:  {confidence * 100:.1f}%")
+    if word_count is not None:
+        trunc_note = " (Truncated: Head+Tail 128 tokens)" if truncated else ""
+        print(f"Length:      {word_count} words{trunc_note}")
     print(f"Escalate:    {'YES [High Churn Risk]' if escalate else 'No'}")
     print(f"Latency:     {latency:.1f} ms")
     print("Probabilities:")

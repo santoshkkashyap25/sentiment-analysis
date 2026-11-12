@@ -46,7 +46,12 @@ logger = logging.getLogger(__name__)
 
 # Request schemas
 class PredictRequest(BaseModel):
-    text: str = Field(..., min_length=1, description="Customer feedback text to analyze")
+    text: str = Field(
+        ...,
+        min_length=1,
+        max_length=25000,
+        description="Customer feedback text to analyze (max 25,000 characters)"
+    )
 
 class PredictResponse(BaseModel):
     sentiment: str
@@ -57,6 +62,9 @@ class PredictResponse(BaseModel):
     processed_text: Optional[str] = None
     response_time_ms: float = 0.0
     error: Optional[str] = None
+    word_count: Optional[int] = None
+    char_count: Optional[int] = None
+    truncated: Optional[bool] = None
 
 class HealthResponse(BaseModel):
     status: str
@@ -144,8 +152,8 @@ class FeedbackAnalysisAPI:
                     try:
                         from tokenizers import Tokenizer
                         self.raw_tokenizer = Tokenizer.from_file(str(tokenizer_json))
-                        self.raw_tokenizer.enable_truncation(max_length=128)
-                        self.raw_tokenizer.enable_padding(length=128, pad_id=1, pad_token='<pad>')
+                        self.raw_tokenizer.no_truncation()
+                        self.raw_tokenizer.no_padding()
                         self.is_raw_tokenizer = True
                         logger.info("Loaded ultra-lean Rust Tokenizer (~15 MB RAM, zero-torch)")
                     except Exception as e:
@@ -257,6 +265,9 @@ class FeedbackAnalysisAPI:
             if not self.is_onnx and not self.is_transformer and (self.model is None or self.feature_engineer is None):
                 self.load_model_and_extractors()
 
+            char_count = len(text)
+            word_count = len(text.split())
+
             clean_text = self.preprocess_text(text)
 
             if not clean_text.strip():
@@ -266,6 +277,9 @@ class FeedbackAnalysisAPI:
                     'confidence': 0.33,
                     'probabilities': {'Negative': 0.33, 'Neutral': 0.34, 'Positive': 0.33},
                     'processed_text': '',
+                    'word_count': word_count,
+                    'char_count': char_count,
+                    'truncated': False,
                     'error': 'Empty text after cleaning'
                 }
 
@@ -273,18 +287,43 @@ class FeedbackAnalysisAPI:
             if self.is_onnx and self.onnx_session is not None:
                 if getattr(self, 'is_raw_tokenizer', False) and self.raw_tokenizer is not None:
                     enc = self.raw_tokenizer.encode(text)
-                    input_ids = np.array([enc.ids], dtype=np.int64)
-                    attention_mask = np.array([enc.attention_mask], dtype=np.int64)
+                    raw_ids = enc.ids
+                    total_tokens = len(raw_ids)
+                    is_truncated = total_tokens > 128
+                    if is_truncated:
+                        # Head + Tail Truncation: <s> (0) + 63 head + 63 tail + </s> (2) = 128
+                        head = raw_ids[1:64]
+                        tail = raw_ids[-64:-1]
+                        input_ids_list = [0] + head + tail + [2]
+                        mask_list = [1] * 128
+                    else:
+                        pad_len = 128 - total_tokens
+                        input_ids_list = raw_ids + [1] * pad_len
+                        mask_list = [1] * total_tokens + [0] * pad_len
+                    input_ids = np.array([input_ids_list], dtype=np.int64)
+                    attention_mask = np.array([mask_list], dtype=np.int64)
                 else:
                     encoded = self.onnx_tokenizer(
                         text,
-                        truncation=True,
-                        max_length=128,
-                        padding=True,
-                        return_tensors='np'
+                        truncation=False,
+                        padding=False,
+                        return_tensors=None
                     )
-                    input_ids = encoded["input_ids"]
-                    attention_mask = encoded["attention_mask"]
+                    raw_ids = encoded["input_ids"]
+                    total_tokens = len(raw_ids)
+                    is_truncated = total_tokens > 128
+                    if is_truncated:
+                        head = raw_ids[1:64]
+                        tail = raw_ids[-64:-1]
+                        input_ids_list = [raw_ids[0]] + head + tail + [raw_ids[-1]]
+                        mask_list = [1] * 128
+                    else:
+                        pad_len = 128 - total_tokens
+                        pad_id = getattr(self.onnx_tokenizer, "pad_token_id", 1) or 1
+                        input_ids_list = raw_ids + [pad_id] * pad_len
+                        mask_list = [1] * total_tokens + [0] * pad_len
+                    input_ids = np.array([input_ids_list], dtype=np.int64)
+                    attention_mask = np.array([mask_list], dtype=np.int64)
 
                 onnx_inputs = {
                     "input_ids": input_ids,
@@ -315,6 +354,9 @@ class FeedbackAnalysisAPI:
                     'confidence': confidence,
                     'probabilities': prob_dict,
                     'processed_text': clean_text,
+                    'word_count': word_count,
+                    'char_count': char_count,
+                    'truncated': is_truncated,
                     'runtime': 'onnx-int8-quantized',
                     'error': None
                 }
@@ -323,13 +365,30 @@ class FeedbackAnalysisAPI:
             if self.is_transformer and self.transformer_model is not None:
                 import torch
                 with torch.no_grad():
-                    inputs = self.transformer_tokenizer(
+                    encoded = self.transformer_tokenizer(
                         text,
-                        truncation=True,
-                        max_length=128,
-                        padding=True,
-                        return_tensors='pt'
-                    ).to(self.device)
+                        truncation=False,
+                        padding=False,
+                        return_tensors=None
+                    )
+                    raw_ids = encoded["input_ids"]
+                    total_tokens = len(raw_ids)
+                    is_truncated = total_tokens > 128
+                    if is_truncated:
+                        head = raw_ids[1:64]
+                        tail = raw_ids[-64:-1]
+                        input_ids_list = [raw_ids[0]] + head + tail + [raw_ids[-1]]
+                        mask_list = [1] * 128
+                    else:
+                        pad_len = 128 - total_tokens
+                        pad_id = getattr(self.transformer_tokenizer, "pad_token_id", 1) or 1
+                        input_ids_list = raw_ids + [pad_id] * pad_len
+                        mask_list = [1] * total_tokens + [0] * pad_len
+
+                    inputs = {
+                        "input_ids": torch.tensor([input_ids_list], dtype=torch.long, device=self.device),
+                        "attention_mask": torch.tensor([mask_list], dtype=torch.long, device=self.device)
+                    }
                     outputs = self.transformer_model(**inputs)
                     probs = torch.softmax(outputs.logits, dim=-1).cpu().numpy()[0]
 
@@ -353,6 +412,9 @@ class FeedbackAnalysisAPI:
                     'confidence': confidence,
                     'probabilities': prob_dict,
                     'processed_text': clean_text,
+                    'word_count': word_count,
+                    'char_count': char_count,
+                    'truncated': is_truncated,
                     'runtime': 'pytorch-transformer',
                     'error': None
                 }
@@ -392,6 +454,9 @@ class FeedbackAnalysisAPI:
                 'confidence': confidence,
                 'probabilities': prob_dict,
                 'processed_text': clean_text,
+                'word_count': word_count,
+                'char_count': char_count,
+                'truncated': False,
                 'error': None
             }
 

@@ -228,8 +228,8 @@
         <!-- Text Input Form -->
         <form id="sentimentForm" class="inference-form">
           <div class="textarea-wrapper">
-            <textarea id="feedbackInput" class="feedback-textarea" placeholder="Type or paste customer feedback review here..." rows="4" required></textarea>
-            <div class="char-count"><span id="charCount">0</span> chars</div>
+            <textarea id="feedbackInput" class="feedback-textarea" placeholder="Type or paste customer feedback review here..." rows="4" maxlength="5000" required></textarea>
+            <div class="char-count"><span id="charCount">0</span> / 5,000 chars</div>
           </div>
 
           <div class="form-actions">

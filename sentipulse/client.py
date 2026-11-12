@@ -48,6 +48,9 @@ class SentiPulse:
                 "error": "Empty text input"
             }
 
+        if len(text) > 25000:
+            raise ValueError(f"Input text exceeds maximum allowed length of 25,000 characters (received {len(text)}).")
+
         t0 = time.time()
 
         if self.api_url:
