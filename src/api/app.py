@@ -28,6 +28,7 @@ warnings.filterwarnings("ignore")
 from src.features.feature_engineering import FeatureEngineer
 from src.data.preprocessing import DataPreprocessor
 from src.monitoring.drift_detection import ModelMonitor
+from src.integrations.webhooks import WebhookDispatcher
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
@@ -70,9 +71,18 @@ class StatsResponse(BaseModel):
     uptime: str
     model_info: Dict[str, Any]
 
+class WebhookConfigRequest(BaseModel):
+    webhook_url: Optional[str] = None
+    min_negative_conf: float = Field(0.85, ge=0.5, le=1.0)
+    enabled: bool = True
+
 request_count = 0
 request_lock = threading.Lock()
 monitor = ModelMonitor(db_path=str(BASE_DIR / 'monitoring.db'))
+webhook_dispatcher = WebhookDispatcher(
+    webhook_url=os.getenv("SENTIPULSE_WEBHOOK_URL", None),
+    min_negative_conf=float(os.getenv("SENTIPULSE_ESCALATION_THRESHOLD", "0.85"))
+)
 
 
 class FeedbackAnalysisAPI:
@@ -397,11 +407,7 @@ start_time_server = datetime.now()
 app.app = app
 app.monitor = monitor
 app.api = api
-
-# Attribute attachment: Ensure attributes are accessible both on module and app instance (to support test monkeypatching)
-app.app = app
-app.monitor = monitor
-app.api = api
+app.webhook_dispatcher = webhook_dispatcher
 
 
 @app.get("/", response_class=FileResponse)
@@ -470,6 +476,19 @@ def predict(payload: PredictRequest):
             )
         except Exception as e:
             logger.warning(f"Could not log prediction to monitoring DB: {e}")
+
+        # Trigger escalation webhook if Negative customer sentiment detected above threshold
+        try:
+            active_dispatcher = getattr(app, "webhook_dispatcher", webhook_dispatcher)
+            if active_dispatcher:
+                active_dispatcher.dispatch_escalation(
+                    text=payload.text,
+                    sentiment=result.get("sentiment", "Neutral"),
+                    confidence=result.get("confidence", 0.0),
+                    probabilities=result.get("probabilities", {})
+                )
+        except Exception as e:
+            logger.warning(f"Error dispatching escalation webhook: {e}")
 
     result['timestamp'] = datetime.now().isoformat()
     result['model_version'] = '3.0-ONNX-INT8' if getattr(active_api, 'is_onnx', False) else ('2.0-Transformer' if getattr(active_api, 'is_transformer', False) else '1.0')
@@ -726,6 +745,32 @@ def check_live_drift():
     except Exception as e:
         logger.error(f"Error checking live drift: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/webhook/config")
+def get_webhook_config():
+    """Retrieve current customer escalation webhook configuration."""
+    active_dispatcher = getattr(app, "webhook_dispatcher", webhook_dispatcher)
+    return {
+        "webhook_url": active_dispatcher.webhook_url if active_dispatcher else None,
+        "min_negative_conf": active_dispatcher.min_negative_conf if active_dispatcher else 0.85,
+        "enabled": bool(active_dispatcher and active_dispatcher.webhook_url)
+    }
+
+
+@app.post("/api/webhook/config")
+def update_webhook_config(cfg: WebhookConfigRequest):
+    """Update destination webhook URL and negative escalation threshold."""
+    active_dispatcher = getattr(app, "webhook_dispatcher", webhook_dispatcher)
+    if active_dispatcher:
+        active_dispatcher.webhook_url = cfg.webhook_url if cfg.enabled else None
+        active_dispatcher.min_negative_conf = cfg.min_negative_conf
+    return {
+        "status": "updated",
+        "webhook_url": active_dispatcher.webhook_url if active_dispatcher else None,
+        "min_negative_conf": active_dispatcher.min_negative_conf if active_dispatcher else 0.85,
+        "enabled": bool(active_dispatcher and active_dispatcher.webhook_url)
+    }
 
 
 if __name__ == '__main__':

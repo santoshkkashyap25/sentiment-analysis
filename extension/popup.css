@@ -1,0 +1,335 @@
+/* SentiPulse Extension Styling - Clean Dark Mode Theme */
+:root {
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-tertiary: #334155;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --color-brand: #3b82f6;
+  --color-pos: #10b981;
+  --color-neu: #f59e0b;
+  --color-neg: #ef4444;
+  --radius: 8px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+body {
+  width: 380px;
+  background-color: var(--bg-primary);
+  color: var(--text-main);
+  padding: 16px;
+  font-size: 13px;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--bg-tertiary);
+  margin-bottom: 12px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-pos);
+  box-shadow: 0 0 8px var(--color-pos);
+}
+
+.brand-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.3px;
+}
+
+.brand-badge {
+  font-size: 10px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.status-indicator {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.status-online {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--color-pos);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.status-offline {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--color-neg);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* Nav Tabs */
+.nav-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.nav-tab {
+  flex: 1;
+  background: var(--bg-secondary);
+  border: 1px solid var(--bg-tertiary);
+  color: var(--text-muted);
+  padding: 6px 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.nav-tab.active {
+  background: var(--color-brand);
+  color: #fff;
+  border-color: var(--color-brand);
+}
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+.tab-desc {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+
+.form-group {
+  margin-bottom: 12px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+textarea, input[type="text"] {
+  width: 100%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--bg-tertiary);
+  border-radius: var(--radius);
+  color: #fff;
+  padding: 8px 10px;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+textarea {
+  height: 75px;
+  resize: vertical;
+}
+
+textarea:focus, input[type="text"]:focus {
+  border-color: var(--color-brand);
+}
+
+.help-text {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.help-text code {
+  color: #38bdf8;
+}
+
+/* Buttons */
+.btn-primary, .btn-secondary {
+  width: 100%;
+  padding: 8px 0;
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.2s;
+}
+
+.btn-primary {
+  background: var(--color-brand);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  opacity: 0.9;
+}
+
+.btn-secondary {
+  background: var(--bg-tertiary);
+  color: #fff;
+}
+
+/* Results Card */
+.result-card, .page-results-card {
+  margin-top: 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--bg-tertiary);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.sentiment-tag {
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.tag-positive {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--color-pos);
+  border: 1px solid var(--color-pos);
+}
+
+.tag-neutral {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--color-neu);
+  border: 1px solid var(--color-neu);
+}
+
+.tag-negative {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--color-neg);
+  border: 1px solid var(--color-neg);
+}
+
+.confidence-val {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.escalation-warning {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid var(--color-neg);
+  color: #fca5a5;
+  padding: 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  margin-bottom: 8px;
+  line-height: 1.3;
+}
+
+.prob-bar-container {
+  height: 6px;
+  border-radius: 3px;
+  display: flex;
+  overflow: hidden;
+  margin-bottom: 6px;
+  background: var(--bg-tertiary);
+}
+
+.bar-pos { background: var(--color-pos); }
+.bar-neu { background: var(--color-neu); }
+.bar-neg { background: var(--color-neg); }
+
+.prob-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.meta-row {
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+/* Page Scraper Stats */
+.page-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.stat-pill {
+  background: var(--bg-primary);
+  padding: 6px;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.text-pos { color: var(--color-pos); }
+.text-neu { color: var(--color-neu); }
+.text-neg { color: var(--color-neg); }
+
+.section-subtitle {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+}
+
+.complaints-list {
+  max-height: 140px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.complaint-item {
+  background: var(--bg-primary);
+  border-left: 3px solid var(--color-neg);
+  padding: 6px 8px;
+  font-size: 11px;
+  color: #e2e8f0;
+  border-radius: 0 4px 4px 0;
+  line-height: 1.3;
+}
+
+.settings-saved {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-pos);
+  text-align: center;
+}

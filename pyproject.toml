@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "feedback-analysis"
+name = "sentipulse"
 version = "1.0.0"
-description = "Customer Feedback Analysis System - ML pipeline for sentiment classification"
+description = "SentiPulse: Production-Grade Sentiment Classification & Real-Time MLOps Engine"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
@@ -40,10 +40,11 @@ dev = [
 ]
 
 [project.scripts]
+sentipulse = "sentipulse.cli:main"
 run-pipeline = "pipeline:main"
 
 [tool.setuptools.packages.find]
-include = ["src*"]
+include = ["src*", "sentipulse*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

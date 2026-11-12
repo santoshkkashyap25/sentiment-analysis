@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SentiPulse Review Inspector</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <h1 class="brand-name">SentiPulse</h1>
+        <span class="brand-badge">INT8 AI</span>
+      </div>
+      <div id="connection-status" class="status-indicator status-online" title="Engine connected">Connected</div>
+    </header>
+
+    <!-- Nav Tabs -->
+    <nav class="nav-tabs">
+      <button class="nav-tab active" data-tab="tab-analyze">Analyze</button>
+      <button class="nav-tab" data-tab="tab-page">Page Scraper</button>
+      <button class="nav-tab" data-tab="tab-settings">Settings</button>
+    </nav>
+
+    <!-- Tab 1: Single Review Analyzer -->
+    <section id="tab-analyze" class="tab-content active">
+      <div class="form-group">
+        <label for="feedback-input">Feedback or Review Text:</label>
+        <textarea id="feedback-input" placeholder="Paste feedback or review text to analyze sentiment..."></textarea>
+      </div>
+      <button id="btn-analyze" class="btn-primary">
+        <span>Analyze Sentiment</span>
+      </button>
+
+      <div id="result-box" class="result-card" style="display: none;">
+        <div class="result-header">
+          <span id="res-sentiment" class="sentiment-tag">Positive</span>
+          <span id="res-confidence" class="confidence-val">92.4%</span>
+        </div>
+        <div id="escalation-alert" class="escalation-warning" style="display: none;">
+          ⚠️ <strong>High Churn Risk:</strong> Immediate customer support follow-up recommended.
+        </div>
+        <div class="prob-breakdown">
+          <div class="prob-bar-container">
+            <div id="bar-pos" class="prob-bar bar-pos" style="width: 70%;"></div>
+            <div id="bar-neu" class="prob-bar bar-neu" style="width: 20%;"></div>
+            <div id="bar-neg" class="prob-bar bar-neg" style="width: 10%;"></div>
+          </div>
+          <div class="prob-labels">
+            <span>Pos: <strong id="lbl-pos">0%</strong></span>
+            <span>Neu: <strong id="lbl-neu">0%</strong></span>
+            <span>Neg: <strong id="lbl-neg">0%</strong></span>
+          </div>
+        </div>
+        <div class="meta-row">
+          <span id="res-latency">Latency: -- ms</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 2: Live Page Scraper -->
+    <section id="tab-page" class="tab-content">
+      <p class="tab-desc">Extract and classify customer reviews directly from the active Amazon, Trustpilot, or Google page.</p>
+      <button id="btn-scrape-page" class="btn-primary">
+        <span>Inspect Page Reviews</span>
+      </button>
+
+      <div id="page-results" class="page-results-card" style="display: none;">
+        <div class="page-stats-grid">
+          <div class="stat-pill"><span id="page-total">0</span> Reviews</div>
+          <div class="stat-pill text-pos"><span id="page-pos-pct">0%</span> Pos</div>
+          <div class="stat-pill text-neu"><span id="page-neu-pct">0%</span> Neu</div>
+          <div class="stat-pill text-neg"><span id="page-neg-pct">0%</span> Neg</div>
+        </div>
+
+        <h3 class="section-subtitle">Top Critical Complaints Caught</h3>
+        <div id="page-complaints-list" class="complaints-list">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 3: Settings -->
+    <section id="tab-settings" class="tab-content">
+      <div class="form-group">
+        <label for="endpoint-url">SentiPulse API Server:</label>
+        <input type="text" id="endpoint-url" value="http://127.0.0.1:5000">
+        <span class="help-text">Use <code>http://127.0.0.1:5000</code> for local engine or your production Render URL.</span>
+      </div>
+      <button id="btn-save-settings" class="btn-secondary">Save Settings</button>
+      <div id="settings-status" class="settings-saved" style="display: none;">Settings saved!</div>
+    </section>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

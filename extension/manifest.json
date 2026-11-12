@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "SentiPulse: Review Inspector & Sentiment AI",
+  "version": "1.0.0",
+  "description": "Real-time customer sentiment intelligence, complaint triage, and review scraping powered by SentiPulse INT8 RoBERTa.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SentiPulse Review Inspector"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ]
+}

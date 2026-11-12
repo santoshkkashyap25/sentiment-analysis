@@ -74,5 +74,84 @@ Pipeline execution steps:
 
 ---
 
+## Python Developer SDK & CLI (`sentipulse`)
+
+SentiPulse provides a clean, dual-mode Python library and command-line utility.
+
+### 1. Python SDK Usage
+```python
+from sentipulse import SentiPulse
+
+# Mode A: Local embedded CPU inference (~25-35 ms, zero-torch runtime)
+sp = SentiPulse()
+
+# Mode B: Remote client (connect to your deployed microservice)
+# sp = SentiPulse(api_url="https://sentipulse-q0mx.onrender.com")
+
+result = sp.analyze("Arrived damaged, customer support ignored my refund request.")
+print(result)
+# {
+#   "sentiment": "Negative",
+#   "confidence": 0.909,
+#   "probabilities": {"Negative": 0.854, "Neutral": 0.116, "Positive": 0.030},
+#   "escalation_recommended": True,
+#   "response_time_ms": 28.5
+# }
+```
+
+### 2. Command-Line Interface (CLI)
+```bash
+# Analyze a single review string
+sentipulse analyze "The shoes fit comfortably and the color matches the pictures."
+
+# Raw JSON output
+sentipulse analyze "Awful experience, never buying again." --json
+
+# High-throughput batch classification for entire CSV datasets
+sentipulse batch reviews.csv --text-col reviewText --output analyzed_reviews.csv
+
+# Launch the FastAPI server locally
+sentipulse serve --host 0.0.0.0 --port 5000
+```
+
+---
+
+## Support Desk & Webhook Escalations
+
+SentiPulse can automatically dispatch high-priority escalation alerts to **Slack, Discord, Zendesk, or custom webhooks** when customer feedback exhibits high-confidence negative sentiment ($\ge 85\%$):
+
+```bash
+# Configure destination webhook via API
+curl -X POST http://localhost:5000/api/webhook/config \
+  -H "Content-Type: application/json" \
+  -d '{"webhook_url": "https://hooks.slack.com/services/...", "min_negative_conf": 0.85, "enabled": true}'
+```
+
+---
+
+## Chrome & Chromium Browser Extension
+
+A Manifest V3 extension (`extension/`) for e-commerce operators to inspect and triage live reviews on **Amazon, Trustpilot, and Google Reviews**:
+
+1. Navigate to `chrome://extensions/` and enable **Developer mode**.
+2. Click **Load unpacked** and select the [`extension/`](extension/) directory.
+3. Open any Amazon or Trustpilot product page and click **Inspect Page Reviews** to view instant sentiment distribution and highlighted critical complaints.
+
+---
+
+## Production Docker Appliance
+
+Run SentiPulse as an on-premises, privacy-compliant microservice with persistent SQLite telemetry:
+
+```bash
+# Launch with Docker Compose
+docker compose up -d
+
+# Check container health status
+curl http://localhost:5000/health
+```
+
+---
+
 ## License
 Distributed under the MIT License. See `LICENSE` for more information.
