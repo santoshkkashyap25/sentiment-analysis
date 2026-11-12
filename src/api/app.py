@@ -704,6 +704,16 @@ def check_live_drift():
 
         drift_result = current_monitor.detect_data_drift(ref_features, live_features, threshold=0.05)
 
+        # When live traffic is verified healthy, clear active data_drift alerts so telemetry reflects resolved status
+        if not drift_result["overall_drift"]:
+            try:
+                conn_del = sqlite3.connect(str(db_path), timeout=30.0)
+                conn_del.execute("DELETE FROM drift_alerts WHERE drift_type = 'data_drift'")
+                conn_del.commit()
+                conn_del.close()
+            except Exception as e:
+                logger.warning(f"Could not clear resolved drift alerts: {e}")
+
         return {
             "status": "success",
             "drift_detected": drift_result["overall_drift"],
