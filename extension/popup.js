@@ -31,17 +31,29 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Tab 3: Settings
   const endpointUrlInput = document.getElementById("endpoint-url");
+  const apiKeyInput = document.getElementById("api-key");
   const btnSaveSettings = document.getElementById("btn-save-settings");
   const settingsStatus = document.getElementById("settings-status");
 
   let apiUrl = "http://127.0.0.1:5000";
+  let apiKey = "";
 
-  // Load saved endpoint URL
+  function getHeaders() {
+    const h = { "Content-Type": "application/json" };
+    if (apiKey) h["X-API-Key"] = apiKey;
+    return h;
+  }
+
+  // Load saved endpoint URL & API Key
   if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.sync) {
-    chrome.storage.sync.get(["sentipulse_api_url"], (res) => {
+    chrome.storage.sync.get(["sentipulse_api_url", "sentipulse_api_key"], (res) => {
       if (res.sentipulse_api_url) {
         apiUrl = res.sentipulse_api_url;
         endpointUrlInput.value = apiUrl;
+      }
+      if (res.sentipulse_api_key) {
+        apiKey = res.sentipulse_api_key;
+        if (apiKeyInput) apiKeyInput.value = apiKey;
       }
       checkHealth();
     });
@@ -89,7 +101,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const t0 = performance.now();
       const res = await fetch(`${apiUrl}/predict`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getHeaders(),
         body: JSON.stringify({ text }),
       });
 
@@ -172,7 +184,7 @@ document.addEventListener("DOMContentLoaded", () => {
           try {
             const res = await fetch(`${apiUrl}/predict`, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: getHeaders(),
               body: JSON.stringify({ text: reviewText.slice(0, 5000) }),
             });
             if (res.ok) {
@@ -223,11 +235,13 @@ document.addEventListener("DOMContentLoaded", () => {
   // 3. Save Settings
   btnSaveSettings.addEventListener("click", () => {
     const val = endpointUrlInput.value.trim().replace(/\/+$/, "");
-    if (!val) return;
-    apiUrl = val;
+    if (val) apiUrl = val;
+    apiKey = apiKeyInput ? apiKeyInput.value.trim() : "";
+
+    const payload = { sentipulse_api_url: apiUrl, sentipulse_api_key: apiKey };
 
     if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.sync) {
-      chrome.storage.sync.set({ sentipulse_api_url: apiUrl }, () => {
+      chrome.storage.sync.set(payload, () => {
         settingsStatus.style.display = "block";
         setTimeout(() => (settingsStatus.style.display = "none"), 2000);
         checkHealth();

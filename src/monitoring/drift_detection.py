@@ -28,7 +28,7 @@ class ModelMonitor:
         return conn
 
     def setup_database(self):
-        """Setup monitoring database"""
+        """Setup monitoring database with multi-tenant partitioning support and schema migrations."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -40,7 +40,8 @@ class ModelMonitor:
                     input_text TEXT,
                     prediction INTEGER,
                     confidence REAL,
-                    response_time REAL
+                    response_time REAL,
+                    tenant_id TEXT DEFAULT 'default'
                 )
             ''')
 
@@ -50,7 +51,8 @@ class ModelMonitor:
                     timestamp DATETIME,
                     accuracy REAL,
                     f1_score REAL,
-                    sample_size INTEGER
+                    sample_size INTEGER,
+                    tenant_id TEXT DEFAULT 'default'
                 )
             ''')
 
@@ -61,27 +63,101 @@ class ModelMonitor:
                     drift_type TEXT,
                     metric_value REAL,
                     threshold REAL,
-                    severity TEXT
+                    severity TEXT,
+                    tenant_id TEXT DEFAULT 'default'
                 )
             ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS api_keys (
+                    key_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    api_key TEXT UNIQUE NOT NULL,
+                    tenant_id TEXT NOT NULL,
+                    tenant_name TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            # Automatic column migrations for existing databases
+            for table in ['predictions', 'drift_alerts', 'performance_metrics']:
+                cursor.execute(f"PRAGMA table_info({table})")
+                cols = [c[1] for c in cursor.fetchall()]
+                if 'tenant_id' not in cols:
+                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN tenant_id TEXT DEFAULT 'default'")
+
+            # Indexes for tenant-partitioned queries
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_predictions_tenant ON predictions(tenant_id, id DESC)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_drift_alerts_tenant ON drift_alerts(tenant_id, id DESC)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_lookup ON api_keys(api_key)")
 
             conn.commit()
         finally:
             conn.close()
 
     def log_prediction(self, input_text: str, prediction: int,
-                      confidence: float, response_time: float):
-        """Log prediction for monitoring"""
+                      confidence: float, response_time: float,
+                      tenant_id: str = "default"):
+        """Log prediction for monitoring with tenant partitioning."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
 
             cursor.execute('''
-                INSERT INTO predictions (timestamp, input_text, prediction, confidence, response_time)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (datetime.now(), input_text, prediction, confidence, response_time))
+                INSERT INTO predictions (timestamp, input_text, prediction, confidence, response_time, tenant_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (datetime.now(), input_text, prediction, confidence, response_time, tenant_id or "default"))
 
             conn.commit()
+        finally:
+            conn.close()
+
+    def create_api_key(self, tenant_id: str, tenant_name: str = None) -> str:
+        """Generate and store a new secure API key for a tenant."""
+        import secrets
+        clean_tenant = tenant_id.strip().lower()
+        api_key = f"sp_live_{clean_tenant}_{secrets.token_hex(16)}"
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO api_keys (api_key, tenant_id, tenant_name)
+                VALUES (?, ?, ?)
+            ''', (api_key, clean_tenant, tenant_name or clean_tenant))
+            conn.commit()
+            return api_key
+        finally:
+            conn.close()
+
+    def validate_api_key(self, api_key: str) -> str:
+        """Validate API key and return corresponding tenant_id, or None if invalid."""
+        if not api_key:
+            return None
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT tenant_id FROM api_keys WHERE api_key = ?', (api_key.strip(),))
+            row = cursor.fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
+
+    def list_api_keys(self) -> List[Dict[str, Any]]:
+        """List active API keys and their tenants."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT key_id, api_key, tenant_id, tenant_name, created_at FROM api_keys ORDER BY key_id DESC')
+            rows = cursor.fetchall()
+            return [
+                {
+                    "key_id": r[0],
+                    "api_key_masked": f"{r[1][:12]}...{r[1][-4:]}" if len(r[1]) > 16 else "***",
+                    "tenant_id": r[2],
+                    "tenant_name": r[3],
+                    "created_at": str(r[4])
+                }
+                for r in rows
+            ]
         finally:
             conn.close()
 
@@ -258,22 +334,23 @@ class ModelMonitor:
             conn.close()
 
     def log_drift_alert(self, drift_type: str, metric_value: float,
-                       threshold: float, severity: str):
-        """Log drift alert"""
+                       threshold: float, severity: str,
+                       tenant_id: str = "default"):
+        """Log drift alert with tenant partitioning."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
 
             cursor.execute('''
-                INSERT INTO drift_alerts (timestamp, drift_type, metric_value, threshold, severity)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (datetime.now(), drift_type, metric_value, threshold, severity))
+                INSERT INTO drift_alerts (timestamp, drift_type, metric_value, threshold, severity, tenant_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (datetime.now(), drift_type, metric_value, threshold, severity, tenant_id or "default"))
 
             conn.commit()
         finally:
             conn.close()
 
-        self.logger.warning(f"Drift alert: {drift_type} - Value: {metric_value}, "
+        self.logger.warning(f"Drift alert [{tenant_id}]: {drift_type} - Value: {metric_value}, "
                           f"Threshold: {threshold}, Severity: {severity}")
 
     def get_monitoring_dashboard_data(self, days: int = 7) -> Dict[str, Any]:

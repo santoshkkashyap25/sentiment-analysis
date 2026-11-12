@@ -1,6 +1,6 @@
 """FastAPI application for sentiment analysis predictions with embedded MLOps dashboard."""
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
@@ -65,6 +65,11 @@ class PredictResponse(BaseModel):
     word_count: Optional[int] = None
     char_count: Optional[int] = None
     truncated: Optional[bool] = None
+    tenant_id: Optional[str] = "default"
+
+class ApiKeyRequest(BaseModel):
+    tenant_id: str = Field(..., min_length=2, max_length=50, description="Tenant / Workspace ID")
+    name: Optional[str] = Field(None, description="Descriptive name for the key")
 
 class HealthResponse(BaseModel):
     status: str
@@ -506,9 +511,50 @@ async def health_check():
     }
 
 
+def get_current_tenant(
+    request: Request,
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+) -> str:
+    """Resolve tenant from X-API-Key header or query parameter; fallback to 'default' workspace."""
+    key = x_api_key or request.query_params.get("api_key")
+    if key:
+        active_monitor = getattr(app, "monitor", monitor)
+        tenant = active_monitor.validate_api_key(key)
+        if not tenant:
+            raise HTTPException(status_code=401, detail="Invalid API Key. Please provide a registered X-API-Key.")
+        return tenant
+    tenant_param = request.query_params.get("tenant_id")
+    if tenant_param:
+        return tenant_param.strip().lower()
+    return "default"
+
+
+@app.post("/api/auth/keys")
+def create_api_key(payload: ApiKeyRequest):
+    """Generate a new secure API key for a tenant/workspace."""
+    active_monitor = getattr(app, "monitor", monitor)
+    new_key = active_monitor.create_api_key(payload.tenant_id, payload.name)
+    return {
+        "status": "created",
+        "api_key": new_key,
+        "tenant_id": payload.tenant_id.strip().lower(),
+        "name": payload.name or payload.tenant_id
+    }
+
+
+@app.get("/api/auth/keys")
+def list_api_keys():
+    """List active API keys and their associated tenants."""
+    active_monitor = getattr(app, "monitor", monitor)
+    return {"keys": active_monitor.list_api_keys()}
+
+
 @app.post("/predict", response_model=PredictResponse)
-def predict(payload: PredictRequest):
-    """Real-time single feedback sentiment prediction"""
+def predict(
+    payload: PredictRequest,
+    tenant_id: str = Depends(get_current_tenant)
+):
+    """Real-time single feedback sentiment prediction with multi-tenant partitioning"""
     global request_count
 
     with request_lock:
@@ -537,7 +583,8 @@ def predict(payload: PredictRequest):
                 input_text=payload.text[:500],
                 prediction=prediction_int,
                 confidence=result.get('confidence', 0.0),
-                response_time=latency_sec
+                response_time=latency_sec,
+                tenant_id=tenant_id
             )
         except Exception as e:
             logger.warning(f"Could not log prediction to monitoring DB: {e}")
@@ -558,6 +605,7 @@ def predict(payload: PredictRequest):
     result['timestamp'] = datetime.now().isoformat()
     result['model_version'] = '3.0-ONNX-INT8' if getattr(active_api, 'is_onnx', False) else ('2.0-Transformer' if getattr(active_api, 'is_transformer', False) else '1.0')
     result['response_time_ms'] = latency_ms
+    result['tenant_id'] = tenant_id
 
     return result
 
@@ -580,8 +628,11 @@ async def get_stats():
 
 
 @app.get("/api/telemetry")
-async def get_telemetry():
-    """Query monitoring.db to return live MLOps telemetry and drift metrics"""
+async def get_telemetry(
+    tenant_id: str = Depends(get_current_tenant),
+    all_tenants: bool = False
+):
+    """Query monitoring.db to return live MLOps telemetry and drift metrics, partitioned by tenant."""
     db_path = BASE_DIR / "monitoring.db"
     if not db_path.exists():
         return {
@@ -591,7 +642,8 @@ async def get_telemetry():
             "p95_latency_ms": 0.0,
             "sentiment_counts": {"Positive": 0, "Neutral": 0, "Negative": 0},
             "recent_predictions": [],
-            "drift_alerts": []
+            "drift_alerts": [],
+            "tenant_id": tenant_id if not all_tenants else "all"
         }
 
     try:
@@ -601,12 +653,17 @@ async def get_telemetry():
         try:
             cursor = conn.cursor()
 
+            # Tenant-scoped queries
+            where_clause = "" if all_tenants else "WHERE tenant_id = ?"
+            params = () if all_tenants else (tenant_id,)
+
             # Query recent predictions
-            cursor.execute('''
-                SELECT id, timestamp, input_text, prediction, confidence, response_time
+            cursor.execute(f'''
+                SELECT id, timestamp, input_text, prediction, confidence, response_time, tenant_id
                 FROM predictions
+                {where_clause}
                 ORDER BY id DESC LIMIT 20
-            ''')
+            ''', params)
             rows = cursor.fetchall()
 
             sentiment_labels = {0: "Negative", 1: "Neutral", 2: "Positive"}
@@ -625,26 +682,29 @@ async def get_telemetry():
                     "text": r["input_text"],
                     "sentiment": lbl,
                     "confidence": round(float(r["confidence"] or 0), 4),
-                    "latency_ms": lat
+                    "latency_ms": lat,
+                    "tenant_id": r["tenant_id"] if "tenant_id" in r.keys() else "default"
                 })
 
             # Overall count and latencies
-            cursor.execute("SELECT COUNT(*), AVG(response_time) FROM predictions")
+            cursor.execute(f"SELECT COUNT(*), AVG(response_time) FROM predictions {where_clause}", params)
             tot_count, avg_resp = cursor.fetchone()
             avg_latency_ms = round((avg_resp or 0) * 1000, 2)
 
             # Percentiles
-            cursor.execute("SELECT response_time FROM predictions WHERE response_time IS NOT NULL ORDER BY response_time")
+            order_clause = f"WHERE response_time IS NOT NULL" if all_tenants else f"WHERE tenant_id = ? AND response_time IS NOT NULL"
+            cursor.execute(f"SELECT response_time FROM predictions {order_clause} ORDER BY response_time", params)
             all_lats = [float(row[0]) * 1000 for row in cursor.fetchall()]
             p50 = round(float(np.percentile(all_lats, 50)), 2) if all_lats else 0.0
             p95 = round(float(np.percentile(all_lats, 95)), 2) if all_lats else 0.0
 
             # Query drift alerts
-            cursor.execute('''
-                SELECT id, timestamp, drift_type, metric_value, threshold, severity
+            cursor.execute(f'''
+                SELECT id, timestamp, drift_type, metric_value, threshold, severity, tenant_id
                 FROM drift_alerts
+                {where_clause}
                 ORDER BY id DESC LIMIT 10
-            ''')
+            ''', params)
             alerts = [
                 {
                     "id": a["id"],
@@ -652,7 +712,8 @@ async def get_telemetry():
                     "type": a["drift_type"],
                     "value": round(float(a["metric_value"]), 4),
                     "threshold": round(float(a["threshold"]), 4),
-                    "severity": a["severity"]
+                    "severity": a["severity"],
+                    "tenant_id": a["tenant_id"] if "tenant_id" in a.keys() else "default"
                 }
                 for a in cursor.fetchall()
             ]
@@ -666,7 +727,8 @@ async def get_telemetry():
             "p95_latency_ms": p95,
             "sentiment_counts": counts,
             "recent_predictions": recent,
-            "drift_alerts": alerts
+            "drift_alerts": alerts,
+            "tenant_id": tenant_id if not all_tenants else "all"
         }
     except Exception as e:
         logger.error(f"Error fetching telemetry: {e}")
@@ -734,8 +796,8 @@ def simulate_drift():
 
 
 @app.post("/api/check-drift")
-def check_live_drift():
-    """Evaluate statistical feature drift on actual live customer feedback queries logged in SQLite."""
+def check_live_drift(tenant_id: str = Depends(get_current_tenant)):
+    """Evaluate statistical feature drift on actual live customer feedback queries logged in SQLite for active tenant."""
     try:
         current_api = getattr(app, "api", api)
         current_monitor = getattr(app, "monitor", monitor)
@@ -745,14 +807,15 @@ def check_live_drift():
                 "status": "insufficient_data",
                 "message": "Monitoring database empty. Submit feedback to collect queries.",
                 "queries_evaluated": 0,
-                "drift_detected": False
+                "drift_detected": False,
+                "tenant_id": tenant_id
             }
 
         conn = sqlite3.connect(str(db_path), timeout=30.0)
         conn.execute("PRAGMA journal_mode=WAL;")
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT input_text FROM predictions ORDER BY id DESC LIMIT 50")
+            cursor.execute("SELECT input_text FROM predictions WHERE tenant_id = ? ORDER BY id DESC LIMIT 50", (tenant_id,))
             rows = cursor.fetchall()
         finally:
             conn.close()
@@ -761,9 +824,10 @@ def check_live_drift():
         if len(texts) < 5:
             return {
                 "status": "insufficient_data",
-                "message": f"Collecting query window ({len(texts)} / 20 logged). Submit more reviews to evaluate statistical drift.",
+                "message": f"Collecting query window ({len(texts)} / 20 logged for tenant '{tenant_id}'). Submit more reviews to evaluate statistical drift.",
                 "queries_evaluated": len(texts),
-                "drift_detected": False
+                "drift_detected": False,
+                "tenant_id": tenant_id
             }
 
         if current_api.feature_engineer is None:
@@ -788,15 +852,23 @@ def check_live_drift():
 
         drift_result = current_monitor.detect_data_drift(ref_features, live_features, threshold=0.05)
 
-        # When live traffic is verified healthy, clear active data_drift alerts so telemetry reflects resolved status
+        # When live traffic is verified healthy, clear active data_drift alerts for this tenant
         if not drift_result["overall_drift"]:
             try:
                 conn_del = sqlite3.connect(str(db_path), timeout=30.0)
-                conn_del.execute("DELETE FROM drift_alerts WHERE drift_type = 'data_drift'")
+                conn_del.execute("DELETE FROM drift_alerts WHERE drift_type = 'data_drift' AND tenant_id = ?", (tenant_id,))
                 conn_del.commit()
                 conn_del.close()
             except Exception as e:
-                logger.warning(f"Could not clear resolved drift alerts: {e}")
+                logger.warning(f"Could not clear resolved drift alerts for {tenant_id}: {e}")
+        else:
+            current_monitor.log_drift_alert(
+                drift_type="data_drift",
+                metric_value=drift_result["drift_percentage"],
+                threshold=0.10,
+                severity="HIGH",
+                tenant_id=tenant_id
+            )
 
         return {
             "status": "success",
@@ -805,10 +877,11 @@ def check_live_drift():
             "drifted_features_count": drift_result["drift_detected_features"],
             "total_features_tested": drift_result["total_features"],
             "queries_evaluated": len(texts),
-            "message": f"Statistical shift alert: {round(drift_result['drift_percentage'] * 100, 1)}% features shifted across {len(texts)} live reviews." if drift_result["overall_drift"] else f"Statistical check completed: Live traffic healthy ({round(drift_result['drift_percentage'] * 100, 1)}% shifted across {len(texts)} live reviews, below 10% threshold)."
+            "tenant_id": tenant_id,
+            "message": f"Statistical shift alert: {round(drift_result['drift_percentage'] * 100, 1)}% features shifted across {len(texts)} live reviews for tenant '{tenant_id}'." if drift_result["overall_drift"] else f"Statistical check completed: Live traffic healthy ({round(drift_result['drift_percentage'] * 100, 1)}% shifted across {len(texts)} live reviews, below 10% threshold)."
         }
     except Exception as e:
-        logger.error(f"Error checking live drift: {e}")
+        logger.error(f"Error checking live drift for {tenant_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+import os
 import json
 from pathlib import Path
 import pandas as pd
@@ -10,7 +11,7 @@ from sentipulse.client import SentiPulse
 
 def cmd_analyze(args):
     """Analyze a single customer feedback string."""
-    client = SentiPulse(api_url=args.api_url)
+    client = SentiPulse(api_url=args.api_url, api_key=getattr(args, "api_key", None))
     result = client.analyze(args.text)
 
     if args.json:
@@ -56,7 +57,7 @@ def cmd_batch(args):
         text_col = found
 
     print(f"Analyzing {len(df)} records from '{args.input}' using column '{text_col}'...")
-    client = SentiPulse(api_url=args.api_url)
+    client = SentiPulse(api_url=args.api_url, api_key=getattr(args, "api_key", None))
 
     sentiments = []
     confidences = []
@@ -89,7 +90,7 @@ def cmd_serve(args):
 
 def cmd_health(args):
     """Check health of SentiPulse inference engine."""
-    client = SentiPulse(api_url=args.api_url)
+    client = SentiPulse(api_url=args.api_url, api_key=getattr(args, "api_key", None))
     try:
         health_info = client.health()
         print(json.dumps(health_info, indent=2))
@@ -106,10 +107,13 @@ def main(argv=None):
     )
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 
+    default_key = os.environ.get("SENTIPULSE_API_KEY", None)
+
     # 1. Analyze
     p_analyze = subparsers.add_parser("analyze", help="Analyze a single feedback string")
     p_analyze.add_argument("text", type=str, help="Customer feedback text")
     p_analyze.add_argument("--api-url", type=str, default=None, help="Remote SentiPulse server URL")
+    p_analyze.add_argument("--api-key", type=str, default=default_key, help="Tenant API Key (default: SENTIPULSE_API_KEY env)")
     p_analyze.add_argument("--json", action="store_true", help="Output raw JSON response")
     p_analyze.set_defaults(func=cmd_analyze)
 
@@ -119,6 +123,7 @@ def main(argv=None):
     p_batch.add_argument("--text-col", type=str, default="reviewText", help="Name of column containing review text")
     p_batch.add_argument("--output", "-o", type=str, default=None, help="Destination CSV path")
     p_batch.add_argument("--api-url", type=str, default=None, help="Remote SentiPulse server URL")
+    p_batch.add_argument("--api-key", type=str, default=default_key, help="Tenant API Key (default: SENTIPULSE_API_KEY env)")
     p_batch.set_defaults(func=cmd_batch)
 
     # 3. Serve
@@ -131,6 +136,7 @@ def main(argv=None):
     # 4. Health
     p_health = subparsers.add_parser("health", help="Check engine health")
     p_health.add_argument("--api-url", type=str, default=None, help="Remote SentiPulse server URL")
+    p_health.add_argument("--api-key", type=str, default=default_key, help="Tenant API Key (default: SENTIPULSE_API_KEY env)")
     p_health.set_defaults(func=cmd_health)
 
     args = parser.parse_args(argv)

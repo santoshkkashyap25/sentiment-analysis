@@ -17,10 +17,12 @@ class SentiPulse:
     def __init__(
         self,
         api_url: Optional[str] = None,
+        api_key: Optional[str] = None,
         timeout: float = 15.0,
         escalation_threshold: float = 0.85,
     ):
         self.api_url = api_url.rstrip("/") if api_url else None
+        self.api_key = api_key.strip() if api_key else None
         self.timeout = timeout
         self.escalation_threshold = escalation_threshold
         self._local_api = None
@@ -28,6 +30,12 @@ class SentiPulse:
         if not self.api_url:
             from src.api.app import FeedbackAnalysisAPI
             self._local_api = FeedbackAnalysisAPI()
+
+    def _get_headers(self) -> Dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["X-API-Key"] = self.api_key
+        return headers
 
     def analyze(self, text: str) -> Dict[str, Any]:
         """Analyze sentiment for a single piece of customer feedback text.
@@ -54,10 +62,12 @@ class SentiPulse:
         t0 = time.time()
 
         if self.api_url:
+            post_kwargs = {"json": {"text": text}, "timeout": self.timeout}
+            if self.api_key:
+                post_kwargs["headers"] = {"X-API-Key": self.api_key}
             resp = requests.post(
                 f"{self.api_url}/predict",
-                json={"text": text},
-                timeout=self.timeout
+                **post_kwargs
             )
             resp.raise_for_status()
             data = resp.json()
@@ -80,7 +90,10 @@ class SentiPulse:
     def health(self) -> Dict[str, Any]:
         """Check operational status of the SentiPulse inference engine."""
         if self.api_url:
-            resp = requests.get(f"{self.api_url}/health", timeout=self.timeout)
+            get_kwargs = {"timeout": self.timeout}
+            if self.api_key:
+                get_kwargs["headers"] = {"X-API-Key": self.api_key}
+            resp = requests.get(f"{self.api_url}/health", **get_kwargs)
             resp.raise_for_status()
             return resp.json()
         
@@ -99,7 +112,10 @@ class SentiPulse:
     def check_drift(self) -> Dict[str, Any]:
         """Evaluate statistical feature drift on recent live queries."""
         if self.api_url:
-            resp = requests.post(f"{self.api_url}/api/check-drift", timeout=self.timeout)
+            post_kwargs = {"timeout": self.timeout}
+            if self.api_key:
+                post_kwargs["headers"] = {"X-API-Key": self.api_key}
+            resp = requests.post(f"{self.api_url}/api/check-drift", **post_kwargs)
             resp.raise_for_status()
             return resp.json()
         

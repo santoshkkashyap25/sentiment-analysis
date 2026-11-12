@@ -326,6 +326,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (kpiP50Latency) kpiP50Latency.textContent = data.p50_latency_ms || 0;
       if (kpiP95Latency) kpiP95Latency.textContent = data.p95_latency_ms || 0;
 
+      const activeTenantDisplay = document.getElementById('activeTenantDisplay');
+      if (activeTenantDisplay && data.tenant_id) {
+        activeTenantDisplay.textContent = data.tenant_id;
+      }
+
       // Drift status
       const alerts = data.drift_alerts || [];
       const hasRecentDrift = alerts.some(a => a.type === 'data_drift');
