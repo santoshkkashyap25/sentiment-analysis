@@ -28,3 +28,4 @@ services:
 volumes:
   sentipulse-data:
     driver: local
+

@@ -72,3 +72,4 @@ def test_cli_batch_csv_processing(tmp_path):
     assert df_out["sentiment"].iloc[0] == "Positive"
     assert df_out["sentiment"].iloc[1] == "Negative"
     assert df_out["escalate"].iloc[1] == True
+

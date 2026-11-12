@@ -64,7 +64,7 @@ class SentiPulse:
 
         sentiment = data.get("sentiment", "Neutral")
         confidence = float(data.get("confidence", 0.0))
-
+        data["text"] = text
         data["escalation_recommended"] = (
             sentiment == "Negative" and confidence >= self.escalation_threshold
         )
@@ -102,3 +102,4 @@ class SentiPulse:
         
         from src.api.app import check_live_drift
         return check_live_drift()
+

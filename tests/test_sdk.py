@@ -71,3 +71,4 @@ def test_sdk_health_and_drift_remote():
 
         d = sp.check_drift()
         assert d["drift_detected"] is False
+

@@ -67,3 +67,4 @@ function extractReviewsFromPage() {
 
   return reviews.slice(0, 50); // Cap at 50 reviews
 }
+

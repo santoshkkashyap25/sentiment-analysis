@@ -96,3 +96,4 @@ class WebhookDispatcher:
                 logger.info(f"Successfully dispatched customer escalation alert to webhook ({resp.status_code})")
         except Exception as e:
             logger.warning(f"Webhook connection error: {e}")
+

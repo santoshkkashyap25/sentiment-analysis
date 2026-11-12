@@ -29,3 +29,4 @@ A lightweight browser extension powered by the **SentiPulse INT8 RoBERTa** infer
 
 1. **Verify Connection:** Ensure the local server is running (`sentipulse serve` or `python -m uvicorn src.api.app:app --port 5000`). The popup header will display green **Connected**.
 2. **Scrape Reviews:** Navigate to any Amazon product page or Trustpilot review list, open the extension, switch to the **Page Scraper** tab, and click **Inspect Page Reviews**.
+
