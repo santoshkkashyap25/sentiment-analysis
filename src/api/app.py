@@ -633,7 +633,8 @@ async def get_telemetry(
     all_tenants: bool = False
 ):
     """Query monitoring.db to return live MLOps telemetry and drift metrics, partitioned by tenant."""
-    db_path = BASE_DIR / "monitoring.db"
+    active_monitor = getattr(app, "monitor", monitor)
+    db_path = Path(getattr(active_monitor, "db_path", BASE_DIR / "monitoring.db"))
     if not db_path.exists():
         return {
             "total_predictions": 0,

@@ -185,7 +185,7 @@ def test_telemetry_query_integer_casting(tmp_path):
 # ---------------------------------------------------------------------------
 # B9: API Empty-Text Prediction ID and No Bogus Logging
 # ---------------------------------------------------------------------------
-def test_api_empty_text_prediction_id_and_no_bogus_logging(tmp_path):
+def test_api_empty_text_prediction_id_and_no_bogus_logging(tmp_path, monkeypatch):
     """Verify empty text fallback contains prediction_id: 1 and is not recorded in monitoring DB."""
     api = FeedbackAnalysisAPI()
     res = api.predict_sentiment("<p>   <br>   </p>")
@@ -197,8 +197,8 @@ def test_api_empty_text_prediction_id_and_no_bogus_logging(tmp_path):
     db_file = tmp_path / "test_api_mon.db"
     test_monitor = ModelMonitor(db_path=str(db_file))
     
-    app.monitor = test_monitor
-    app.api = api
+    monkeypatch.setattr(app, "monitor", test_monitor)
+    monkeypatch.setattr(app, "api", api)
 
     payload = PredictRequest(text="<p>   <br>   </p>")
     endpoint_res = predict(payload)

@@ -4,9 +4,21 @@ Tests for Multi-Tenant Isolation, API Key Authentication, and Partitioned Teleme
 import pytest
 from fastapi.testclient import TestClient
 from src.api.app import app
+import src.api.app as app_module
+from src.monitoring.drift_detection import ModelMonitor
 from sentipulse import SentiPulse
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def isolated_tenant_db(tmp_path, monkeypatch):
+    """Ensure every multi-tenancy test runs with an isolated database."""
+    test_db = tmp_path / "test_multi_tenancy.db"
+    test_mon = ModelMonitor(db_path=str(test_db))
+    monkeypatch.setattr(app, "monitor", test_mon)
+    monkeypatch.setattr(app_module, "monitor", test_mon)
+    yield test_mon
 
 
 def test_auth_create_and_list_api_keys():
