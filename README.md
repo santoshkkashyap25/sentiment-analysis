@@ -58,6 +58,18 @@ The production application is live and accessible at:
 5. **Multi-Tenant Workspaces**: Out-of-the-box tenant isolation with cryptographically secure API keys (`sk_live_...`) and separate telemetry partitions.
 6. **Smart Head + Tail Truncation**: Intelligently handles long reviews (>150 words) by keeping the opening context and concluding verdict within the 128-token budget, recovering **+4.67% accuracy** with zero latency overhead.
 
+```mermaid
+flowchart LR
+    A["Clients (SDK / CLI / Chrome Ext)"] --> B["FastAPI Gateway\n(Multi-Tenant Routing)"]
+    B --> C["Safety Sanitizer\n(25k Limit & Head+Tail Slicing)"]
+    C --> D["INT8 Quantized RoBERTa\n(ONNX Runtime ~25ms)"]
+    D --> E["Calibrated Decision Engine\n(τ_neg = 0.200)"]
+    E --> F["SQLite Telemetry & KS Drift Monitor"]
+    E --> G{"Confidence ≥ 85% Neg?"}
+    G -- Yes --> H["Webhook Escalations\n(Slack / Discord)"]
+    G -- No --> I["JSON Prediction Response"]
+```
+
 ---
 
 ## 📊 Validated Benchmarks
@@ -204,9 +216,12 @@ curl -X POST https://sentipulse.onrender.com/api/webhook/config \
 
 A Manifest V3 extension (`extension/`) for e-commerce operators to inspect and triage live reviews on **Amazon, Trustpilot, and Google Reviews**:
 
+> [!TIP]
+> **No git clone needed!** Download the pre-built `sentipulse-chrome-extension-v1.0.0.zip` directly from [GitHub Releases](https://github.com/santoshkkashyap25/sentiment-analysis/releases/tag/v1.0.0), unzip, and load unpacked in 10 seconds.
+
 1. Navigate to `chrome://extensions/` and enable **Developer mode**.
-2. Click **Load unpacked** and select the [`extension/`](extension/) directory.
-3. In the extension popup, enter your API URL (`https://sentipulse.onrender.com` or local `http://localhost:5000`) and optional API key.
+2. Click **Load unpacked** and select the [`extension/`](extension/) directory (or extracted release folder).
+3. In the extension popup, choose **Render Cloud** (`https://sentipulse.onrender.com`) or your local server (`http://localhost:5000`).
 4. Open any Amazon or Trustpilot product page and click **Inspect Page Reviews** to view instant sentiment distribution and highlighted critical complaints.
 
 ---
@@ -245,3 +260,49 @@ Pipeline execution steps:
 
 ## 📄 License
 Distributed under the MIT License. See [LICENSE](LICENSE) for more information.
+
+---
+
+## 🤝 Contributing & Community
+
+Contributions are what make the open-source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
+
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feat/AmazingFeature`)
+3. Install development dependencies:
+   ```bash
+   pip install -e ".[dev,train]"
+   ```
+4. Run the test suite (ensure all 296 tests pass):
+   ```bash
+   pytest tests/ -v
+   ```
+5. Commit your Changes (`git commit -m 'feat: add some AmazingFeature'`)
+6. Push to the Branch (`git push origin feat/AmazingFeature`)
+7. Open a Pull Request
+
+### Reporting Issues & Feature Requests
+Found a bug, have a suggestion, or want to request a feature? Please open an issue on the [GitHub Issue Tracker](https://github.com/santoshkkashyap25/sentiment-analysis/issues).
+
+---
+
+## 📖 Citation
+
+If you use SentiPulse in your research, production systems, or academic work, please cite:
+
+```bibtex
+@software{sentipulse2026,
+  author = {Santosh Kashyap},
+  title = {SentiPulse: Production-Grade Sentiment Classification & Real-Time MLOps Engine},
+  year = {2026},
+  url = {https://github.com/santoshkkashyap25/sentiment-analysis},
+  version = {1.0.0}
+}
+```
+
+---
+
+<p align="center">
+  <b>Built with ❤️ for real-time customer sentiment intelligence.</b><br>
+  If you find SentiPulse helpful, please give it a ⭐ on <a href="https://github.com/santoshkkashyap25/sentiment-analysis">GitHub</a>!
+</p>
