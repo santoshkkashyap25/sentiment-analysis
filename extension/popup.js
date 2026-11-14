@@ -232,6 +232,20 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Preset buttons
+  const btnPresetLocal = document.getElementById("btn-preset-local");
+  const btnPresetCloud = document.getElementById("btn-preset-cloud");
+  if (btnPresetLocal) {
+    btnPresetLocal.addEventListener("click", () => {
+      endpointUrlInput.value = "http://127.0.0.1:5000";
+    });
+  }
+  if (btnPresetCloud) {
+    btnPresetCloud.addEventListener("click", () => {
+      endpointUrlInput.value = "https://sentipulse.onrender.com";
+    });
+  }
+
   // 3. Save Settings
   btnSaveSettings.addEventListener("click", () => {
     const val = endpointUrlInput.value.trim().replace(/\/+$/, "");

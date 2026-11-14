@@ -87,11 +87,15 @@
       <div class="form-group">
         <label for="endpoint-url">SentiPulse API Server:</label>
         <input type="text" id="endpoint-url" value="http://127.0.0.1:5000">
-        <span class="help-text">Use <code>http://127.0.0.1:5000</code> for local engine or your production cloud URL.</span>
+        <div style="display: flex; gap: 6px; margin-top: 6px;">
+          <button type="button" id="btn-preset-local" class="btn-secondary" style="padding: 4px 8px; font-size: 11px;">Localhost (5000)</button>
+          <button type="button" id="btn-preset-cloud" class="btn-secondary" style="padding: 4px 8px; font-size: 11px;">Render Cloud</button>
+        </div>
+        <span class="help-text">Use <code>http://127.0.0.1:5000</code> for local engine or <code>https://sentipulse.onrender.com</code>.</span>
       </div>
       <div class="form-group">
         <label for="api-key">Tenant API Key (Optional):</label>
-        <input type="password" id="api-key" placeholder="sp_live_...">
+        <input type="password" id="api-key" placeholder="sk_live_...">
         <span class="help-text">Isolates predictions, scrapings &amp; alerts to your workspace.</span>
       </div>
       <button id="btn-save-settings" class="btn-secondary">Save Settings</button>

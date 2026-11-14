@@ -156,6 +156,7 @@ benchmark*.txt
 # Allow web dashboard static assets and documentation graphics
 !src/api/static/**
 !docs/**
+!extension/icons/**
 
 # ------------------------------------------------------------------------------
 # 9. Logs & Process Artifacts
