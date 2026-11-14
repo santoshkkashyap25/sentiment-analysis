@@ -34,5 +34,20 @@ jobs:
           python -c "import os, zipfile, glob; zips = glob.glob(os.path.expanduser('~/nltk_data/corpora/*.zip')); [zipfile.ZipFile(z).extractall(os.path.dirname(z)) for z in zips]"
 
       - name: Run PyTest suite with coverage
+        id: pytest_step
         run: |
-          python -m pytest tests/ -v --cov=src --cov-report=term-missing
+          set -o pipefail
+          python -m pytest tests/ -v --cov=src --cov-report=term-missing 2>&1 | tee pytest_output.log
+        continue-on-error: true
+
+      - name: Output PyTest failure details
+        if: steps.pytest_step.outcome != 'success'
+        run: |
+          echo "## ❌ PyTest Execution Failures" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          tail -n 100 pytest_output.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -E "FAILED|ERROR" pytest_output.log | head -n 20 | while read -r line; do
+            echo "::error::$line"
+          done
+          exit 1
