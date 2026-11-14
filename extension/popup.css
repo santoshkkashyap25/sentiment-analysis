@@ -57,15 +57,6 @@ body {
   letter-spacing: -0.3px;
 }
 
-.brand-badge {
-  font-size: 10px;
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-weight: 600;
-}
-
 .status-indicator {
   font-size: 11px;
   padding: 2px 8px;
