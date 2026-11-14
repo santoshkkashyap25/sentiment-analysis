@@ -2,6 +2,7 @@
 Tests for input length limits, Head+Tail smart truncation, and payload validation.
 """
 import pytest
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from src.api.app import app
 from sentipulse import SentiPulse
@@ -49,9 +50,30 @@ def test_sdk_local_oversized_rejection():
 
 def test_sdk_analyze_includes_length_metadata():
     """Verify SDK returns word_count, char_count and truncated metadata."""
-    sp = SentiPulse(api_url="http://127.0.0.1:5000")
+    sp = SentiPulse()
     res = sp.analyze("Great product, five stars!")
     assert res["sentiment"] == "Positive"
     assert "word_count" in res
     assert "char_count" in res
     assert res["truncated"] is False
+
+def test_sdk_remote_analyze_includes_length_metadata():
+    """Verify remote SDK parses length metadata from response."""
+    sp = SentiPulse(api_url="https://api.sentipulse.test")
+    mock_data = {
+        "sentiment": "Positive",
+        "confidence": 0.92,
+        "probabilities": {"Negative": 0.03, "Neutral": 0.05, "Positive": 0.92},
+        "word_count": 5,
+        "char_count": 27,
+        "truncated": False,
+        "escalation_recommended": False,
+        "response_time_ms": 25.0
+    }
+    with patch("requests.post") as mock_post:
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = mock_data
+        res = sp.analyze("Great product, five stars!!")
+        assert res["word_count"] == 5
+        assert res["char_count"] == 27
+        assert res["truncated"] is False
